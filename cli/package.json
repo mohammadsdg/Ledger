@@ -1,0 +1,13 @@
+{
+  "name": "todo-cli",
+  "version": "2.0.0",
+  "description": "Interactive, offline-first todo CLI that syncs with the shared todo-server API",
+  "main": "todo.js",
+  "type": "commonjs",
+  "bin": {
+    "todo": "./todo.js"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}

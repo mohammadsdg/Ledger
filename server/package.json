@@ -1,0 +1,13 @@
+{
+  "name": "todo-server",
+  "version": "1.0.0",
+  "description": "Shared API + web GUI for Todo CLI",
+  "main": "server.js",
+  "type": "commonjs",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "express": "^4.19.2"
+  }
+}

@@ -1,0 +1,75 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0" />
+<title>Ledger — Todo</title>
+<link rel="stylesheet" href="style.css" />
+</head>
+<body>
+
+<div class="app">
+
+  <div class="topbar">
+    <button id="menuToggle" class="menu-toggle" aria-label="Open menu">☰</button>
+    <span class="topbar-brand"><span class="brand-mark">§</span> Ledger</span>
+    <button id="themeToggle" class="icon-btn theme-toggle" title="Toggle theme">☾</button>
+  </div>
+
+  <div id="overlay" class="overlay hidden"></div>
+
+  <aside id="sidebar" class="sidebar">
+    <div class="brand">
+      <span class="brand-mark">§</span>
+      <span class="brand-name">Ledger</span>
+      <button id="themeToggleDesktop" class="icon-btn theme-toggle-desktop" title="Toggle theme">☾</button>
+    </div>
+
+    <nav class="views">
+      <button class="nav-item is-active" data-view="today">
+        <span class="nav-dot dot-today"></span> Today
+      </button>
+      <button class="nav-item" data-view="all">
+        <span class="nav-dot dot-all"></span> All tasks
+      </button>
+    </nav>
+
+    <div class="lists-section">
+      <div class="lists-heading">
+        <span>Lists</span>
+        <button id="newListBtn" class="icon-btn" title="New list">+</button>
+      </div>
+      <ul id="listNav" class="lists"></ul>
+    </div>
+
+    <form id="newListForm" class="new-list-form hidden">
+      <input id="newListInput" type="text" placeholder="List name" autocomplete="off" />
+      <div class="new-list-actions">
+        <button type="submit">Add</button>
+        <button type="button" id="cancelListBtn" class="ghost">Cancel</button>
+      </div>
+    </form>
+  </aside>
+
+  <main class="main">
+    <header class="main-header">
+      <h1 id="viewTitle">Today</h1>
+      <p id="viewSubtitle" class="view-subtitle">Everything tagged for today, across every list.</p>
+    </header>
+
+    <form id="addTaskForm" class="add-task-form">
+      <input id="addTaskInput" type="text" placeholder="Add a task and press Enter…" autocomplete="off" />
+      <select id="addTaskList" title="Add to list" class="hidden"></select>
+    </form>
+    <p id="addTaskHint" class="add-task-hint"></p>
+
+    <ul id="taskList" class="task-list"></ul>
+
+    <p id="emptyState" class="empty-state hidden">Nothing here yet. Add a task above.</p>
+  </main>
+
+</div>
+
+<script src="app.js"></script>
+</body>
+</html>

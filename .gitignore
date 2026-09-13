@@ -1,0 +1,19 @@
+# deps
+node_modules/
+package-lock.json
+
+# logs
+npm-debug.log*
+*.log
+
+# env stuff, just in case you add any
+.env
+.env.local
+
+# OS junk
+.DS_Store
+Thumbs.db
+
+# editor junk
+.vscode/
+.idea/
