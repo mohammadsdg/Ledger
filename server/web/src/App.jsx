@@ -143,10 +143,7 @@ function ReminderControl({ taskId, value, notificationsReady, onSave }) {
   return <>
     <button type="button" className={`reminderRow ${value ? "hasValue" : ""}`} onClick={openReminder}>
       <span className={`reminderIcon ${notificationsReady ? "ready" : ""}`}><NotificationsNone /></span>
-      <span className="reminderCopy">
-        <strong>Remind me</strong>
-        <small>{value ? moment(value).format("jD jMMMM, HH:mm") : "Choose a date and time"}</small>
-      </span>
+      <span className="reminderCopy"><strong>Remind me</strong></span>
       <ChevronRight className="reminderChevron" />
     </button>
     <Dialog className="reminderDialog" open={open} onClose={closeReminder} fullWidth maxWidth="xs">
@@ -208,10 +205,7 @@ function DueDateControl({ taskId, value, onSave }) {
   return <>
     <button type="button" className={`reminderRow dueDateRow ${value ? "hasValue" : ""}`} onClick={openDueDate}>
       <span className="reminderIcon"><CalendarMonth /></span>
-      <span className="reminderCopy">
-        <strong>Due date</strong>
-        <small>{value ? moment(value, "YYYY-MM-DD").format("dddd, jD jMMMM jYYYY") : "Choose a date"}</small>
-      </span>
+      <span className="reminderCopy"><strong>Due date</strong></span>
       <ChevronRight className="reminderChevron" />
     </button>
     <Dialog className="reminderDialog dueDateDialog" open={open} onClose={closeDueDate} fullWidth maxWidth="xs">

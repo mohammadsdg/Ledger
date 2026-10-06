@@ -73,10 +73,8 @@ nav { display: grid; gap: 3px; }
 .reminderRow:hover .reminderIcon { transform: scale(1.04); }
 .reminderIcon.ready, .reminderRow.hasValue .reminderIcon { color: var(--accent); background: rgba(95,180,148,.13); }
 .reminderIcon svg { font-size: 21px; }
-.reminderCopy { min-width: 0; flex: 1; display: grid; gap: 3px; }
+.reminderCopy { min-width: 0; flex: 1; }
 .reminderCopy strong { font-size: 14px; font-weight: 500; }
-.reminderCopy small { overflow: hidden; color: var(--muted); font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
-.reminderRow.hasValue .reminderCopy small { color: var(--accent); }
 .reminderChevron { color: #6f756f; font-size: 19px !important; }
 .dueDateRow { min-height: 68px; }
 .pickerRow { min-height: 61px; display: grid; grid-template-columns: 29px minmax(0,1fr); align-items: center; gap: 8px; padding: 7px 13px; border-bottom: 1px solid var(--line); color: var(--muted); }.pickerRow:last-child { border: 0; }.pickerRow > .MuiFormControl-root, .pickerRow > .MuiInputBase-root { width: 100%; }.pickerRow .MuiOutlinedInput-notchedOutline { border-color: transparent !important; }.pickerRow .MuiInputBase-root:hover { background: rgba(255,255,255,.025); }
