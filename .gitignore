@@ -1,6 +1,7 @@
 # deps
 node_modules/
 server/data/
+server/dist
 
 # logs
 npm-debug.log*

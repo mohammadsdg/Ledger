@@ -2,6 +2,7 @@ require("dotenv").config({ quiet: true });
 const express = require("express");
 const crypto = require("crypto");
 const path = require("path");
+const dayjs = require("dayjs");
 const db = require("./db");
 
 const app = express();
@@ -11,6 +12,17 @@ const SESSION_SECRET = process.env.SESSION_SECRET || APP_PASSWORD;
 const secureCookie = process.env.NODE_ENV === "production" ? "; Secure" : "";
 const loginAttempts = new Map();
 
+function nextOccurrence(value, rule) {
+  let date = dayjs(value || new Date());
+  if (rule === "daily") date = date.add(1, "day");
+  else if (rule === "weekdays") { do { date = date.add(1, "day"); } while ([0, 6].includes(date.day())); }
+  else if (rule === "weekly") date = date.add(1, "week");
+  else if (rule === "monthly") date = date.add(1, "month");
+  else if (rule === "yearly") date = date.add(1, "year");
+  else return null;
+  return date.format("YYYY-MM-DD");
+}
+
 if (!APP_PASSWORD) {
   console.error("APP_PASSWORD is required. Refusing to start an unprotected server.");
   if (require.main === module) process.exit(1);
@@ -19,7 +31,7 @@ if (!APP_PASSWORD) {
 app.disable("x-powered-by");
 app.set("trust proxy", 1);
 app.use(express.json({ limit: "1mb" }));
-app.use(express.static(path.join(__dirname, "public")));
+app.use(express.static(path.join(__dirname, "dist")));
 
 const route = (fn) => (req, res, next) => Promise.resolve(fn(req, res, next)).catch(next);
 function safeEqual(a, b) {
@@ -110,13 +122,13 @@ app.delete("/api/lists/:id", route(async (req, res) => {
 }));
 
 app.get("/api/tasks", route(async (req, res) => {
-  let sql = "SELECT id,list_id listId,title,done,today,created_at createdAt,updated_at updatedAt FROM tasks";
+  let sql = "SELECT id,list_id listId,title,done,my_day myDay,important,reminder_at reminderAt,due_date dueDate,repeat_rule repeatRule,note,created_at createdAt,updated_at updatedAt FROM tasks";
   const where = [], values = [];
   if (req.query.listId) { where.push("list_id=?"); values.push(req.query.listId); }
-  if (req.query.today === "true") where.push("today=1");
+  if (req.query.today === "true") where.push("my_day=CURRENT_DATE");
   if (where.length) sql += ` WHERE ${where.join(" AND ")}`;
   const [rows] = await db.pool.execute(`${sql} ORDER BY created_at,id`, values);
-  res.json(rows.map((x) => ({ ...x, done: !!x.done, today: !!x.today, createdAt: db.toISO(x.createdAt), updatedAt: db.toISO(x.updatedAt) })));
+  res.json(rows.map((x) => ({ ...x, done: !!x.done, important: !!x.important, reminderAt: x.reminderAt == null ? null : db.toISO(x.reminderAt), createdAt: db.toISO(x.createdAt), updatedAt: db.toISO(x.updatedAt) })));
 }));
 app.post("/api/lists/:listId/tasks", route(async (req, res) => {
   const title = String(req.body?.title || "").trim();
@@ -124,8 +136,11 @@ app.post("/api/lists/:listId/tasks", route(async (req, res) => {
   const [lists] = await db.pool.execute("SELECT id FROM lists WHERE id=?", [req.params.listId]);
   if (!lists.length) return res.status(404).json({ error: "List not found" });
   const now = Date.now();
-  const task = { id: crypto.randomUUID(), listId: req.params.listId, title, done: false, today: !!req.body.today, createdAt: db.toISO(now), updatedAt: db.toISO(now) };
-  await db.pool.execute("INSERT INTO tasks(id,list_id,title,done,today,created_at,updated_at) VALUES(?,?,?,?,?,?,?)", [task.id, task.listId, title, task.done, task.today, now, now]);
+  const myDay = /^\d{4}-\d{2}-\d{2}$/.test(req.body?.myDay || "") ? req.body.myDay : null;
+  const important = !!req.body?.important;
+  const dueDate = /^\d{4}-\d{2}-\d{2}$/.test(req.body?.dueDate || "") ? req.body.dueDate : null;
+  const task = { id: crypto.randomUUID(), listId: req.params.listId, title, done: false, myDay, important, reminderAt: null, dueDate, repeatRule: null, note: "", steps: [], createdAt: db.toISO(now), updatedAt: db.toISO(now) };
+  await db.pool.execute("INSERT INTO tasks(id,list_id,title,done,today,my_day,important,reminder_at,due_date,repeat_rule,note,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)", [task.id, task.listId, title, task.done, !!myDay, myDay, important, null, dueDate, null, "", now, now]);
   res.status(201).json(task);
 }));
 app.patch("/api/tasks/:id", route(async (req, res) => {
@@ -135,17 +150,71 @@ app.patch("/api/tasks/:id", route(async (req, res) => {
     const old = rows[0];
     const title = typeof req.body.title === "string" && req.body.title.trim() ? req.body.title.trim() : old.title;
     const done = typeof req.body.done === "boolean" ? req.body.done : !!old.done;
-    const today = typeof req.body.today === "boolean" ? req.body.today : !!old.today;
+    const myDay = req.body.myDay === null ? null : (/^\d{4}-\d{2}-\d{2}$/.test(req.body.myDay || "") ? req.body.myDay : old.my_day);
+    const important = typeof req.body.important === "boolean" ? req.body.important : !!old.important;
+    const reminderAt = req.body.reminderAt === null ? null : (req.body.reminderAt ? db.toMillis(req.body.reminderAt, old.reminder_at) : old.reminder_at);
+    const dueDate = req.body.dueDate === null ? null : (/^\d{4}-\d{2}-\d{2}$/.test(req.body.dueDate || "") ? req.body.dueDate : old.due_date);
+    const repeatRule = req.body.repeatRule === null ? null : (typeof req.body.repeatRule === "string" ? req.body.repeatRule.slice(0, 32) || null : old.repeat_rule);
+    const note = typeof req.body.note === "string" ? req.body.note.slice(0, 10000) : old.note;
     const listId = typeof req.body.listId === "string" ? req.body.listId : old.list_id;
     const [lists] = await conn.execute("SELECT id FROM lists WHERE id=?", [listId]);
     if (!lists.length) return { invalidList: true };
     const now = Date.now();
-    await conn.execute("UPDATE tasks SET list_id=?,title=?,done=?,today=?,updated_at=? WHERE id=?", [listId, title, done, today, now, req.params.id]);
-    return { id: req.params.id, listId, title, done, today, createdAt: db.toISO(old.created_at), updatedAt: db.toISO(now) };
+    await conn.execute("UPDATE tasks SET list_id=?,title=?,done=?,today=?,my_day=?,important=?,reminder_at=?,due_date=?,repeat_rule=?,note=?,updated_at=? WHERE id=?", [listId, title, done, !!myDay, myDay, important, reminderAt, dueDate, repeatRule, note, now, req.params.id]);
+    if (!old.done && done && repeatRule) {
+      const nextDue = nextOccurrence(dueDate, repeatRule);
+      const nextId = crypto.randomUUID();
+      await conn.execute("INSERT INTO tasks(id,list_id,title,done,today,my_day,important,reminder_at,due_date,repeat_rule,note,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)", [nextId, listId, title, false, false, null, important, null, nextDue, repeatRule, note, now, now]);
+      const [oldSteps] = await conn.execute("SELECT title FROM steps WHERE task_id=? ORDER BY created_at,id", [req.params.id]);
+      for (const oldStep of oldSteps) {
+        await conn.execute("INSERT INTO steps(id,task_id,title,done,created_at,updated_at) VALUES(?,?,?,?,?,?)", [crypto.randomUUID(), nextId, oldStep.title, false, now, now]);
+      }
+    }
+    const [steps] = await conn.execute("SELECT id,task_id taskId,title,done,created_at createdAt,updated_at updatedAt FROM steps WHERE task_id=? ORDER BY created_at,id", [req.params.id]);
+    return { id: req.params.id, listId, title, done, myDay, important, reminderAt: reminderAt == null ? null : db.toISO(reminderAt), dueDate, repeatRule, note, steps: steps.map((x) => ({ ...x, done: !!x.done, createdAt: db.toISO(x.createdAt), updatedAt: db.toISO(x.updatedAt) })), createdAt: db.toISO(old.created_at), updatedAt: db.toISO(now) };
   });
   if (!task) return res.status(404).json({ error: "Task not found" });
   if (task.invalidList) return res.status(400).json({ error: "Target list not found" });
   res.json(task);
+}));
+
+app.post("/api/tasks/:taskId/steps", route(async (req, res) => {
+  const title = String(req.body?.title || "").trim();
+  if (!title) return res.status(400).json({ error: "Step title is required" });
+  const [tasks] = await db.pool.execute("SELECT id FROM tasks WHERE id=?", [req.params.taskId]);
+  if (!tasks.length) return res.status(404).json({ error: "Task not found" });
+  const now = Date.now();
+  const step = { id: crypto.randomUUID(), taskId: req.params.taskId, title: title.slice(0, 500), done: false, createdAt: db.toISO(now), updatedAt: db.toISO(now) };
+  await db.transaction(async (conn) => {
+    await conn.execute("INSERT INTO steps(id,task_id,title,done,created_at,updated_at) VALUES(?,?,?,?,?,?)", [step.id, step.taskId, step.title, false, now, now]);
+    await conn.execute("UPDATE tasks SET updated_at=? WHERE id=?", [now, step.taskId]);
+  });
+  res.status(201).json(step);
+}));
+app.patch("/api/steps/:id", route(async (req, res) => {
+  const step = await db.transaction(async (conn) => {
+    const [rows] = await conn.execute("SELECT * FROM steps WHERE id=? FOR UPDATE", [req.params.id]);
+    if (!rows.length) return null;
+    const old = rows[0], now = Date.now();
+    const title = typeof req.body.title === "string" && req.body.title.trim() ? req.body.title.trim().slice(0, 500) : old.title;
+    const done = typeof req.body.done === "boolean" ? req.body.done : !!old.done;
+    await conn.execute("UPDATE steps SET title=?,done=?,updated_at=? WHERE id=?", [title, done, now, req.params.id]);
+    await conn.execute("UPDATE tasks SET updated_at=? WHERE id=?", [now, old.task_id]);
+    return { id: req.params.id, taskId: old.task_id, title, done, createdAt: db.toISO(old.created_at), updatedAt: db.toISO(now) };
+  });
+  if (!step) return res.status(404).json({ error: "Step not found" });
+  res.json(step);
+}));
+app.delete("/api/steps/:id", route(async (req, res) => {
+  const removed = await db.transaction(async (conn) => {
+    const [rows] = await conn.execute("SELECT task_id taskId FROM steps WHERE id=?", [req.params.id]);
+    if (!rows.length) return false;
+    await conn.execute("DELETE FROM steps WHERE id=?", [req.params.id]);
+    await conn.execute("UPDATE tasks SET updated_at=? WHERE id=?", [Date.now(), rows[0].taskId]);
+    return true;
+  });
+  if (!removed) return res.status(404).json({ error: "Step not found" });
+  res.status(204).end();
 }));
 app.delete("/api/tasks/:id", route(async (req, res) => {
   const removed = await db.transaction(async (conn) => {
@@ -176,7 +245,8 @@ app.post("/api/sync", route(async (req, res) => {
       if (await deletionTime(conn, "task", task.id) >= updated) continue;
       const [lists] = await conn.execute("SELECT id FROM lists WHERE id=?", [task.listId]);
       if (!lists.length) continue;
-      await conn.execute("INSERT INTO tasks(id,list_id,title,done,today,created_at,updated_at) VALUES(?,?,?,?,?,?,?) ON DUPLICATE KEY UPDATE list_id=IF(VALUES(updated_at)>updated_at,VALUES(list_id),list_id),title=IF(VALUES(updated_at)>updated_at,VALUES(title),title),done=IF(VALUES(updated_at)>updated_at,VALUES(done),done),today=IF(VALUES(updated_at)>updated_at,VALUES(today),today),updated_at=GREATEST(updated_at,VALUES(updated_at))", [task.id, task.listId, String(task.title).trim(), !!task.done, !!task.today, db.toMillis(task.createdAt, updated), updated]);
+      const myDay = /^\d{4}-\d{2}-\d{2}$/.test(task.myDay || "") ? task.myDay : (task.today ? new Date().toISOString().slice(0, 10) : null);
+      await conn.execute("INSERT INTO tasks(id,list_id,title,done,today,my_day,important,reminder_at,due_date,repeat_rule,note,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?) ON DUPLICATE KEY UPDATE list_id=IF(VALUES(updated_at)>updated_at,VALUES(list_id),list_id),title=IF(VALUES(updated_at)>updated_at,VALUES(title),title),done=IF(VALUES(updated_at)>updated_at,VALUES(done),done),today=IF(VALUES(updated_at)>updated_at,VALUES(today),today),my_day=IF(VALUES(updated_at)>updated_at,VALUES(my_day),my_day),updated_at=GREATEST(updated_at,VALUES(updated_at))", [task.id, task.listId, String(task.title).trim(), !!task.done, !!myDay, myDay, !!task.important, task.reminderAt ? db.toMillis(task.reminderAt) : null, task.dueDate || null, task.repeatRule || null, task.note || "", db.toMillis(task.createdAt, updated), updated]);
       await conn.execute("DELETE FROM deletions WHERE entity_type='task' AND entity_id=? AND deleted_at<?", [task.id, updated]);
     }
     return db.getState(conn);
@@ -184,10 +254,14 @@ app.post("/api/sync", route(async (req, res) => {
   res.json(state);
 }));
 
+app.use("/api", (_req, res) => res.status(404).json({ error: "API endpoint not found" }));
+
 app.use((error, _req, res, _next) => {
   console.error(error);
   res.status(500).json({ error: "Internal server error" });
 });
+
+app.get("*", (_req, res) => res.sendFile(path.join(__dirname, "dist", "index.html")));
 
 if (require.main === module) {
   db.pool.query("SELECT 1").then(() => app.listen(PORT, () => console.log(`Ledger running at http://localhost:${PORT}`))).catch((error) => {

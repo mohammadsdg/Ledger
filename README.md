@@ -4,12 +4,18 @@ Ledger is a small, self-hosted todo app with a responsive web UI and an offline-
 
 ## Install
 
-Requirements: Node.js 18+, MySQL 8+ (or a compatible recent MariaDB), and a reverse proxy for production.
+Requirements: Node.js 20.19+, MySQL 8+ (or a compatible recent MariaDB), and a reverse proxy for production.
 
 Create the database exactly as requested:
 
 ```bash
 mysql -u root -p < schema.sql
+```
+
+When upgrading an installation created by the previous MySQL version, run the one-time migration instead:
+
+```bash
+mysql -u root -p < migration-002-smart-tasks.sql
 ```
 
 For production, create a restricted database user instead of running the app as root:
@@ -43,7 +49,7 @@ Open `http://localhost:4000` and enter `APP_PASSWORD`.
 
 ## CLI
 
-The CLI stores an offline cache at `~/.todo-cli/cache.json`. Both `fetch` and `push` now perform a safe two-way merge. Edits to separate records are retained and deletion tombstones stop another offline device from bringing deleted tasks back.
+The CLI stores an offline cache at `~/.todo-cli/cache.json`. Both `fetch` and `push` perform a safe two-way merge. Edits to separate records are retained and deletion tombstones stop another offline device from bringing deleted tasks back.
 
 ```bash
 cd cli
@@ -93,17 +99,30 @@ Enable HTTPS (for example with Certbot) before using the production site. Set `N
 - CLI access uses `Authorization: Bearer <TODO_PASSWORD>`.
 - Login attempts are rate-limited in memory.
 
+## Smart lists and task details
+
+- **All tasks** contains tasks created there plus any task currently promoted to My Day, Important, or Planned. Ordinary tasks in custom lists stay out of All tasks.
+- **My Day** is date-based. Adding there or choosing “Add to My Day” records today’s date; the task automatically leaves My Day after the local calendar day changes.
+- **Important** contains starred tasks.
+- **Planned** contains tasks with a due date or reminder.
+- Opening a task reveals steps, My Day, reminder, due date, repeat, and notes.
+- Completing a repeating task creates its next occurrence and resets its steps.
+
+## Install on a phone
+
+Ledger includes a web app manifest, service worker, favicon, and maskable 192px/512px icons. Serve it through HTTPS at `todo.mastiam.ir`, open it in the phone browser, then choose **Add to Home Screen** or **Install app**. The application shell is cached, while todo data still requires the self-hosted API.
+
 ## Commands
 
 ```text
-todo                         show Today
-todo add <task>              add to Inbox
-todo add <task> -today       add and mark Today
+todo                         show My Day
+todo add <task>              add to All tasks
+todo add <task> -today       add and mark My Day
 todo add <task> -list <name> add to a list
 todo list [today|all|name]   show tasks
 todo lists                   show lists and counts
 todo done|undone <task>      update completion
-todo today <task>            toggle Today
+todo today <task>            toggle My Day
 todo rm <task>               delete and record a tombstone
 todo fetch / todo push       merge with the server
 todo menu                    interactive mode

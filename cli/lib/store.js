@@ -17,7 +17,11 @@ function read() {
   ensure();
   const state = JSON.parse(fs.readFileSync(FILE, "utf-8"));
   state.lists = (state.lists || []).map((x) => ({ ...x, updatedAt: x.updatedAt || x.createdAt }));
-  state.tasks = (state.tasks || []).map((x) => ({ ...x, updatedAt: x.updatedAt || x.createdAt }));
+  state.tasks = (state.tasks || []).map((x) => ({
+    ...x,
+    myDay: x.myDay || (x.today ? new Date().toISOString().slice(0, 10) : null),
+    updatedAt: x.updatedAt || x.createdAt,
+  }));
   state.deletedLists = state.deletedLists || [];
   state.deletedTasks = state.deletedTasks || [];
   return state;

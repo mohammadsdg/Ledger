@@ -9,6 +9,7 @@ const pool = mysql.createPool({
   waitForConnections: true,
   connectionLimit: Number(process.env.DB_POOL_SIZE || 10),
   charset: "utf8mb4",
+  dateStrings: true,
 });
 
 const toISO = (value) => new Date(Number(value)).toISOString();
@@ -19,11 +20,22 @@ function toMillis(value, fallback = Date.now()) {
 
 async function getState(conn = pool) {
   const [lists] = await conn.query("SELECT id,name,created_at createdAt,updated_at updatedAt FROM lists ORDER BY created_at,id");
-  const [tasks] = await conn.query("SELECT id,list_id listId,title,done,today,created_at createdAt,updated_at updatedAt FROM tasks ORDER BY created_at,id");
+  const [tasks] = await conn.query("SELECT id,list_id listId,title,done,my_day myDay,important,reminder_at reminderAt,due_date dueDate,repeat_rule repeatRule,note,created_at createdAt,updated_at updatedAt FROM tasks ORDER BY created_at,id");
+  const [steps] = await conn.query("SELECT id,task_id taskId,title,done,created_at createdAt,updated_at updatedAt FROM steps ORDER BY created_at,id");
   const [deleted] = await conn.query("SELECT entity_type entityType,entity_id id,deleted_at deletedAt FROM deletions");
   return {
     lists: lists.map((x) => ({ ...x, createdAt: toISO(x.createdAt), updatedAt: toISO(x.updatedAt) })),
-    tasks: tasks.map((x) => ({ ...x, done: !!x.done, today: !!x.today, createdAt: toISO(x.createdAt), updatedAt: toISO(x.updatedAt) })),
+    tasks: tasks.map((x) => ({
+      ...x,
+      done: !!x.done,
+      important: !!x.important,
+      myDay: x.myDay || null,
+      reminderAt: x.reminderAt == null ? null : toISO(x.reminderAt),
+      dueDate: x.dueDate || null,
+      steps: steps.filter((step) => step.taskId === x.id).map((step) => ({ ...step, done: !!step.done, createdAt: toISO(step.createdAt), updatedAt: toISO(step.updatedAt) })),
+      createdAt: toISO(x.createdAt),
+      updatedAt: toISO(x.updatedAt),
+    })),
     deletedLists: deleted.filter((x) => x.entityType === "list").map((x) => ({ id: x.id, deletedAt: toISO(x.deletedAt) })),
     deletedTasks: deleted.filter((x) => x.entityType === "task").map((x) => ({ id: x.id, deletedAt: toISO(x.deletedAt) })),
   };

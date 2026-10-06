@@ -4,13 +4,30 @@
   "description": "Shared API + web GUI for Todo CLI",
   "main": "server.js",
   "type": "commonjs",
+  "engines": { "node": ">=20.19.0" },
   "scripts": {
+    "build": "vite build",
+    "dev": "vite --host 127.0.0.1",
+    "prestart": "npm run build",
     "start": "node server.js",
-    "check": "node --check server.js && node --check db.js && node --check public/app.js"
+    "test": "node --test",
+    "check": "node --check server.js && node --check db.js && node --test && vite build"
   },
   "dependencies": {
+    "@emotion/react": "^11.14.0",
+    "@emotion/styled": "^11.14.1",
+    "@mui/icons-material": "^7.3.4",
+    "@mui/material": "^7.3.4",
+    "@mui/x-date-pickers": "^8.14.1",
+    "dayjs": "^1.11.18",
     "dotenv": "^17.2.3",
     "express": "^4.21.2",
-    "mysql2": "^3.15.3"
+    "mysql2": "^3.15.3",
+    "react": "^19.1.1",
+    "react-dom": "^19.1.1"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-react": "^5.0.4",
+    "vite": "^7.1.9"
   }
 }

@@ -58,7 +58,12 @@ function findListByName(state, name) {
 }
 
 function inboxList(state) {
-  return state.lists.find((l) => l.id === "inbox" || l.name.toLowerCase() === "inbox");
+  return state.lists.find((l) => l.id === "all") || state.lists.find((l) => l.id === "inbox" || l.name.toLowerCase() === "inbox");
+}
+
+function todayDate() {
+  const date = new Date();
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
 }
 
 function findTaskMatches(state, text, listFilterName) {
@@ -79,7 +84,7 @@ function printAmbiguous(state, matches) {
 
 function taskLine(state, t, showList) {
   const box = t.done ? c.green("✓") : "○";
-  const star = t.today ? c.cyan("★") : " ";
+  const star = t.myDay === todayDate() ? c.cyan("★") : " ";
   const tag = showList ? c.dim(`  [${listName(state, t.listId)}]`) : "";
   const title = t.done ? c.dim(t.title) : t.title;
   return `${box} ${star} ${title}${tag}`;
@@ -135,7 +140,7 @@ async function cmdAdd(args) {
     target = inboxList(state);
     if (!target) {
       const createdAt = new Date().toISOString();
-      target = { id: "inbox", name: "Inbox", createdAt, updatedAt: createdAt };
+      target = { id: "all", name: "Tasks", createdAt, updatedAt: createdAt };
       state.lists.push(target);
     }
   }
@@ -146,13 +151,13 @@ async function cmdAdd(args) {
     listId: target.id,
     title: text,
     done: false,
-    today: !!today,
+    myDay: today ? todayDate() : null,
     createdAt: now,
     updatedAt: now,
   });
   store.write(state);
 
-  console.log(c.green(`✓ Added "${text}"`) + c.dim(`  → ${target.name}${today ? " · Today" : ""}`));
+  console.log(c.green(`✓ Added "${text}"`) + c.dim(`  → ${target.name}${today ? " · My Day" : ""}`));
 }
 
 async function cmdList(args) {
@@ -161,8 +166,8 @@ async function cmdList(args) {
 
   let tasks, title;
   if (!query || query === "today") {
-    tasks = state.tasks.filter((t) => t.today);
-    title = "Today";
+    tasks = state.tasks.filter((t) => t.myDay === todayDate());
+    title = "My Day";
   } else if (query === "all") {
     tasks = state.tasks;
     title = "All tasks";
@@ -182,7 +187,7 @@ async function cmdList(args) {
     console.log(c.dim("  (nothing here)"));
     return;
   }
-  const showList = title === "Today" || title === "All tasks";
+  const showList = title === "My Day" || title === "All tasks";
   tasks
     .slice()
     .sort((a, b) => a.createdAt.localeCompare(b.createdAt))
@@ -192,7 +197,7 @@ async function cmdList(args) {
 async function cmdLists() {
   const state = store.read();
   if (state.lists.length === 0) {
-    console.log(c.dim("No lists yet. todo add \"first task\" -list Inbox"));
+    console.log(c.dim("No lists yet. Add a task and sync to create All tasks."));
     return;
   }
   state.lists.forEach((l) => {
@@ -242,10 +247,10 @@ async function cmdToggleToday(args) {
     return;
   }
   const task = matches[0];
-  task.today = !task.today;
+  task.myDay = task.myDay === todayDate() ? null : todayDate();
   task.updatedAt = new Date().toISOString();
   store.write(state);
-  console.log(c.green(task.today ? `★ Added to Today: ${task.title}` : `☆ Removed from Today: ${task.title}`));
+  console.log(c.green(task.myDay ? `★ Added to My Day: ${task.title}` : `☆ Removed from My Day: ${task.title}`));
 }
 
 async function cmdRemove(args) {
@@ -275,13 +280,13 @@ function printHelp() {
   console.log(`
 ${c.bold("todo")} — quick, offline-first task capture
 
-  todo add <task> [-today] [-list <name>]   Add a task (default list: Inbox)
+  todo add <task> [-today] [-list <name>]   Add a task (default: All tasks)
   todo <task text>                          Shorthand for "todo add ..."
-  todo list [today|all|<list name>]         Show tasks (default: Today)
+  todo list [today|all|<list name>]         Show tasks (default: My Day)
   todo lists                                Show all lists with counts
   todo done <task>                          Mark a task done (matches by title)
   todo undone <task>                        Mark a task not done
-  todo today <task>                         Toggle the Today tag on a task
+  todo today <task>                         Toggle the My Day tag on a task
   todo rm <task>                            Delete a task
   todo fetch                                Merge local and server changes
   todo push                                 Merge local and server changes
@@ -302,13 +307,13 @@ Password:    set TODO_PASSWORD to the server's APP_PASSWORD
 // ---------- old interactive menu (still here if you want to browse instead of type) ----------
 
 function tasksForView(state, view) {
-  if (view === "today") return state.tasks.filter((t) => t.today);
+  if (view === "today") return state.tasks.filter((t) => t.myDay === todayDate());
   if (view === "all") return state.tasks;
   return state.tasks.filter((t) => t.listId === view);
 }
 
 function viewTitle(state, view) {
-  if (view === "today") return "★ Today";
+  if (view === "today") return "★ My Day";
   if (view === "all") return "☰ All tasks";
   const l = state.lists.find((x) => x.id === view);
   return l ? l.name : "List";
@@ -349,7 +354,7 @@ async function addTaskFlow(view) {
     listId,
     title,
     done: false,
-    today: view === "today",
+    myDay: view === "today" ? todayDate() : null,
     createdAt: now,
     updatedAt: now,
   });
@@ -364,7 +369,7 @@ async function taskActionsFlow(taskId) {
 
     const choice = await selectMenu(task.title, [
       { label: task.done ? "○ Mark not done" : "✓ Mark done", value: "toggle-done" },
-      { label: task.today ? "☆ Remove from Today" : "★ Add to Today", value: "toggle-today" },
+      { label: task.myDay === todayDate() ? "☆ Remove from My Day" : "★ Add to My Day", value: "toggle-today" },
       { label: "✎ Rename", value: "rename" },
       { label: "⇄ Move to another list", value: "move" },
       { label: "✕ Delete", value: "delete" },
@@ -378,7 +383,7 @@ async function taskActionsFlow(taskId) {
       task.updatedAt = new Date().toISOString();
       store.write(state);
     } else if (choice === "toggle-today") {
-      task.today = !task.today;
+      task.myDay = task.myDay === todayDate() ? null : todayDate();
       task.updatedAt = new Date().toISOString();
       store.write(state);
     } else if (choice === "rename") {
@@ -422,7 +427,7 @@ async function viewMenu(view) {
 
     const items = tasks.map((t) => ({
       label:
-        `${t.done ? "✓" : "○"} ${t.today ? "★ " : "  "}${t.title}` +
+        `${t.done ? "✓" : "○"} ${t.myDay === todayDate() ? "★ " : "  "}${t.title}` +
         (showTag ? c.dim(`  [${listName(state, t.listId)}]`) : ""),
       value: { type: "task", id: t.id },
     }));
@@ -439,7 +444,7 @@ async function viewMenu(view) {
 async function interactiveMenu() {
   const state = store.read();
   const items = [
-    { label: "★ Today", value: { type: "view", view: "today" } },
+    { label: "★ My Day", value: { type: "view", view: "today" } },
     { label: "☰ All tasks", value: { type: "view", view: "all" } },
     ...state.lists.map((l) => ({ label: `  ${l.name}`, value: { type: "view", view: l.id } })),
     { label: "+ New list", value: { type: "newlist" } },
