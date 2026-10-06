@@ -29,7 +29,7 @@ async function configurePush() {
       await db.pool.execute("INSERT INTO app_settings(setting_key,setting_value) VALUES('vapid_public_key',?),('vapid_private_key',?) ON DUPLICATE KEY UPDATE setting_value=VALUES(setting_value)", [publicKey, privateKey]);
     }
   }
-  webpush.setVapidDetails(process.env.VAPID_SUBJECT || "mailto:admin@mastiam.ir", publicKey, privateKey);
+  webpush.setVapidDetails(process.env.VAPID_SUBJECT || "mailto:admin@example.com", publicKey, privateKey);
   pushPublicKey = publicKey;
   pushReady = true;
 }
