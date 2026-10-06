@@ -28,6 +28,85 @@ CREATE TABLE IF NOT EXISTS tasks (
   CONSTRAINT tasks_list_fk FOREIGN KEY (list_id) REFERENCES lists(id) ON DELETE CASCADE
 ) ENGINE=InnoDB;
 
+-- Keep this file usable as both a fresh install and an in-place upgrade.
+-- MySQL's CREATE TABLE IF NOT EXISTS does not add new columns to an existing
+-- table, so the procedure below adds only the pieces that are missing.
+DROP PROCEDURE IF EXISTS ledger_apply_schema;
+DELIMITER //
+CREATE PROCEDURE ledger_apply_schema()
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM information_schema.COLUMNS
+    WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'tasks' AND COLUMN_NAME = 'my_day'
+  ) THEN
+    ALTER TABLE tasks ADD COLUMN my_day DATE NULL AFTER today;
+  END IF;
+
+  IF NOT EXISTS (
+    SELECT 1 FROM information_schema.COLUMNS
+    WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'tasks' AND COLUMN_NAME = 'important'
+  ) THEN
+    ALTER TABLE tasks ADD COLUMN important BOOLEAN NOT NULL DEFAULT FALSE AFTER my_day;
+  END IF;
+
+  IF NOT EXISTS (
+    SELECT 1 FROM information_schema.COLUMNS
+    WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'tasks' AND COLUMN_NAME = 'reminder_at'
+  ) THEN
+    ALTER TABLE tasks ADD COLUMN reminder_at BIGINT UNSIGNED NULL AFTER important;
+  END IF;
+
+  IF NOT EXISTS (
+    SELECT 1 FROM information_schema.COLUMNS
+    WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'tasks' AND COLUMN_NAME = 'due_date'
+  ) THEN
+    ALTER TABLE tasks ADD COLUMN due_date DATE NULL AFTER reminder_at;
+  END IF;
+
+  IF NOT EXISTS (
+    SELECT 1 FROM information_schema.COLUMNS
+    WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'tasks' AND COLUMN_NAME = 'repeat_rule'
+  ) THEN
+    ALTER TABLE tasks ADD COLUMN repeat_rule VARCHAR(32) NULL AFTER due_date;
+  END IF;
+
+  IF NOT EXISTS (
+    SELECT 1 FROM information_schema.COLUMNS
+    WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'tasks' AND COLUMN_NAME = 'note'
+  ) THEN
+    ALTER TABLE tasks ADD COLUMN note TEXT NULL AFTER repeat_rule;
+  END IF;
+
+  IF NOT EXISTS (
+    SELECT 1 FROM information_schema.STATISTICS
+    WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'tasks' AND INDEX_NAME = 'tasks_my_day'
+  ) THEN
+    ALTER TABLE tasks ADD KEY tasks_my_day (my_day);
+  END IF;
+
+  IF NOT EXISTS (
+    SELECT 1 FROM information_schema.STATISTICS
+    WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'tasks' AND INDEX_NAME = 'tasks_important'
+  ) THEN
+    ALTER TABLE tasks ADD KEY tasks_important (important);
+  END IF;
+
+  IF NOT EXISTS (
+    SELECT 1 FROM information_schema.STATISTICS
+    WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'tasks' AND INDEX_NAME = 'tasks_due_date'
+  ) THEN
+    ALTER TABLE tasks ADD KEY tasks_due_date (due_date);
+  END IF;
+
+  UPDATE tasks SET my_day = CURRENT_DATE WHERE today = TRUE AND my_day IS NULL;
+  UPDATE tasks SET note = '' WHERE note IS NULL;
+  ALTER TABLE tasks MODIFY COLUMN note TEXT NOT NULL;
+END//
+DELIMITER ;
+
+CALL ledger_apply_schema();
+DROP PROCEDURE ledger_apply_schema;
+
 CREATE TABLE IF NOT EXISTS steps (
   id VARCHAR(36) NOT NULL,
   task_id VARCHAR(36) NOT NULL,

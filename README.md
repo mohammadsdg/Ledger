@@ -12,11 +12,7 @@ Create the database exactly as requested:
 mysql -u root -p < schema.sql
 ```
 
-When upgrading an installation created by the previous MySQL version, run the one-time migration instead:
-
-```bash
-mysql -u root -p < migration-002-smart-tasks.sql
-```
+The same command also upgrades an existing Ledger database in place. `schema.sql` checks the existing table structure and adds only missing columns, indexes, and tables.
 
 For production, create a restricted database user instead of running the app as root:
 
