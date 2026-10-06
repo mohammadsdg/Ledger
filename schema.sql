@@ -18,6 +18,7 @@ CREATE TABLE IF NOT EXISTS tasks (
   my_day DATE NULL,
   important BOOLEAN NOT NULL DEFAULT FALSE,
   reminder_at BIGINT UNSIGNED NULL,
+  reminder_sent_at BIGINT UNSIGNED NULL,
   due_date DATE NULL,
   repeat_rule VARCHAR(32) NULL,
   note TEXT NOT NULL,
@@ -54,6 +55,13 @@ BEGIN
     WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'tasks' AND COLUMN_NAME = 'reminder_at'
   ) THEN
     ALTER TABLE tasks ADD COLUMN reminder_at BIGINT UNSIGNED NULL AFTER important;
+  END IF;
+
+  IF NOT EXISTS (
+    SELECT 1 FROM information_schema.COLUMNS
+    WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'tasks' AND COLUMN_NAME = 'reminder_sent_at'
+  ) THEN
+    ALTER TABLE tasks ADD COLUMN reminder_sent_at BIGINT UNSIGNED NULL AFTER reminder_at;
   END IF;
 
   IF NOT EXISTS (
@@ -123,6 +131,22 @@ CREATE TABLE IF NOT EXISTS deletions (
   entity_id VARCHAR(36) NOT NULL,
   deleted_at BIGINT UNSIGNED NOT NULL,
   PRIMARY KEY (entity_type,entity_id), KEY deletions_deleted_at (deleted_at)
+) ENGINE=InnoDB;
+
+CREATE TABLE IF NOT EXISTS push_subscriptions (
+  id CHAR(64) NOT NULL,
+  endpoint TEXT NOT NULL,
+  p256dh TEXT NOT NULL,
+  auth TEXT NOT NULL,
+  created_at BIGINT UNSIGNED NOT NULL,
+  updated_at BIGINT UNSIGNED NOT NULL,
+  PRIMARY KEY (id)
+) ENGINE=InnoDB;
+
+CREATE TABLE IF NOT EXISTS app_settings (
+  setting_key VARCHAR(64) NOT NULL,
+  setting_value TEXT NOT NULL,
+  PRIMARY KEY (setting_key)
 ) ENGINE=InnoDB;
 
 INSERT INTO lists (id,name,created_at,updated_at)

@@ -3,6 +3,7 @@ const express = require("express");
 const crypto = require("crypto");
 const path = require("path");
 const dayjs = require("dayjs");
+const webpush = require("web-push");
 const db = require("./db");
 
 const app = express();
@@ -11,6 +12,48 @@ const APP_PASSWORD = process.env.APP_PASSWORD;
 const SESSION_SECRET = process.env.SESSION_SECRET || APP_PASSWORD;
 const secureCookie = process.env.NODE_ENV === "production" ? "; Secure" : "";
 const loginAttempts = new Map();
+let pushReady = false;
+let pushPublicKey = null;
+
+async function configurePush() {
+  let publicKey = process.env.VAPID_PUBLIC_KEY;
+  let privateKey = process.env.VAPID_PRIVATE_KEY;
+  if (!publicKey || !privateKey) {
+    const [rows] = await db.pool.query("SELECT setting_key settingKey,setting_value settingValue FROM app_settings WHERE setting_key IN ('vapid_public_key','vapid_private_key')");
+    publicKey = rows.find((row) => row.settingKey === "vapid_public_key")?.settingValue;
+    privateKey = rows.find((row) => row.settingKey === "vapid_private_key")?.settingValue;
+    if (!publicKey || !privateKey) {
+      const generated = webpush.generateVAPIDKeys();
+      publicKey = generated.publicKey;
+      privateKey = generated.privateKey;
+      await db.pool.execute("INSERT INTO app_settings(setting_key,setting_value) VALUES('vapid_public_key',?),('vapid_private_key',?) ON DUPLICATE KEY UPDATE setting_value=VALUES(setting_value)", [publicKey, privateKey]);
+    }
+  }
+  webpush.setVapidDetails(process.env.VAPID_SUBJECT || "mailto:admin@mastiam.ir", publicKey, privateKey);
+  pushPublicKey = publicKey;
+  pushReady = true;
+}
+
+async function deliverDueReminders() {
+  if (!pushReady) return;
+  const [subscriptions] = await db.pool.query("SELECT id,endpoint,p256dh,auth FROM push_subscriptions");
+  if (!subscriptions.length) return;
+  const [tasks] = await db.pool.execute("SELECT id,title,reminder_at reminderAt FROM tasks WHERE done=FALSE AND reminder_at IS NOT NULL AND reminder_at<=? AND reminder_sent_at IS NULL ORDER BY reminder_at LIMIT 100", [Date.now()]);
+  for (const task of tasks) {
+    let delivered = false;
+    const payload = JSON.stringify({ title: task.title, body: "Ledger reminder", taskId: task.id, url: `/?task=${encodeURIComponent(task.id)}` });
+    for (const subscription of subscriptions) {
+      try {
+        await webpush.sendNotification({ endpoint: subscription.endpoint, keys: { p256dh: subscription.p256dh, auth: subscription.auth } }, payload, { TTL: 24 * 60 * 60, urgency: "high" });
+        delivered = true;
+      } catch (error) {
+        if (error.statusCode === 404 || error.statusCode === 410) await db.pool.execute("DELETE FROM push_subscriptions WHERE id=?", [subscription.id]);
+        else console.error(`Push notification failed: ${error.message}`);
+      }
+    }
+    if (delivered) await db.pool.execute("UPDATE tasks SET reminder_sent_at=? WHERE id=? AND reminder_sent_at IS NULL", [Date.now(), task.id]);
+  }
+}
 
 function nextOccurrence(value, rule) {
   let date = dayjs(value || new Date());
@@ -77,6 +120,26 @@ app.post("/api/auth/logout", (_req, res) => {
   res.set("Set-Cookie", `ledger_session=; Path=/; HttpOnly; SameSite=Strict; Max-Age=0${secureCookie}`).status(204).end();
 });
 app.use("/api", (req, res, next) => authenticated(req) ? next() : res.status(401).json({ error: "Authentication required" }));
+
+app.get("/api/push/public-key", route(async (_req, res) => {
+  if (!pushPublicKey) return res.status(503).json({ error: "Notifications are not ready" });
+  res.json({ publicKey: pushPublicKey });
+}));
+app.post("/api/push/subscribe", route(async (req, res) => {
+  const subscription = req.body;
+  if (!subscription?.endpoint || !subscription?.keys?.p256dh || !subscription?.keys?.auth) return res.status(400).json({ error: "Invalid push subscription" });
+  const id = crypto.createHash("sha256").update(subscription.endpoint).digest("hex");
+  const now = Date.now();
+  await db.pool.execute("INSERT INTO push_subscriptions(id,endpoint,p256dh,auth,created_at,updated_at) VALUES(?,?,?,?,?,?) ON DUPLICATE KEY UPDATE endpoint=VALUES(endpoint),p256dh=VALUES(p256dh),auth=VALUES(auth),updated_at=VALUES(updated_at)", [id, subscription.endpoint, subscription.keys.p256dh, subscription.keys.auth, now, now]);
+  res.status(201).json({ subscribed: true });
+}));
+app.post("/api/push/unsubscribe", route(async (req, res) => {
+  if (req.body?.endpoint) {
+    const id = crypto.createHash("sha256").update(req.body.endpoint).digest("hex");
+    await db.pool.execute("DELETE FROM push_subscriptions WHERE id=?", [id]);
+  }
+  res.status(204).end();
+}));
 
 async function putDeletion(conn, type, id, deletedAt) {
   await conn.execute("INSERT INTO deletions(entity_type,entity_id,deleted_at) VALUES(?,?,?) ON DUPLICATE KEY UPDATE deleted_at=GREATEST(deleted_at,VALUES(deleted_at))", [type, id, deletedAt]);
@@ -152,7 +215,9 @@ app.patch("/api/tasks/:id", route(async (req, res) => {
     const done = typeof req.body.done === "boolean" ? req.body.done : !!old.done;
     const myDay = req.body.myDay === null ? null : (/^\d{4}-\d{2}-\d{2}$/.test(req.body.myDay || "") ? req.body.myDay : old.my_day);
     const important = typeof req.body.important === "boolean" ? req.body.important : !!old.important;
+    const reminderChanged = Object.prototype.hasOwnProperty.call(req.body, "reminderAt");
     const reminderAt = req.body.reminderAt === null ? null : (req.body.reminderAt ? db.toMillis(req.body.reminderAt, old.reminder_at) : old.reminder_at);
+    const reminderSentAt = reminderChanged ? null : old.reminder_sent_at;
     const dueDate = req.body.dueDate === null ? null : (/^\d{4}-\d{2}-\d{2}$/.test(req.body.dueDate || "") ? req.body.dueDate : old.due_date);
     const repeatRule = req.body.repeatRule === null ? null : (typeof req.body.repeatRule === "string" ? req.body.repeatRule.slice(0, 32) || null : old.repeat_rule);
     const note = typeof req.body.note === "string" ? req.body.note.slice(0, 10000) : old.note;
@@ -160,7 +225,7 @@ app.patch("/api/tasks/:id", route(async (req, res) => {
     const [lists] = await conn.execute("SELECT id FROM lists WHERE id=?", [listId]);
     if (!lists.length) return { invalidList: true };
     const now = Date.now();
-    await conn.execute("UPDATE tasks SET list_id=?,title=?,done=?,today=?,my_day=?,important=?,reminder_at=?,due_date=?,repeat_rule=?,note=?,updated_at=? WHERE id=?", [listId, title, done, !!myDay, myDay, important, reminderAt, dueDate, repeatRule, note, now, req.params.id]);
+    await conn.execute("UPDATE tasks SET list_id=?,title=?,done=?,today=?,my_day=?,important=?,reminder_at=?,reminder_sent_at=?,due_date=?,repeat_rule=?,note=?,updated_at=? WHERE id=?", [listId, title, done, !!myDay, myDay, important, reminderAt, reminderSentAt, dueDate, repeatRule, note, now, req.params.id]);
     if (!old.done && done && repeatRule) {
       const nextDue = nextOccurrence(dueDate, repeatRule);
       const nextId = crypto.randomUUID();
@@ -264,7 +329,12 @@ app.use((error, _req, res, _next) => {
 app.get("*", (_req, res) => res.sendFile(path.join(__dirname, "dist", "index.html")));
 
 if (require.main === module) {
-  db.pool.query("SELECT 1").then(() => app.listen(PORT, () => console.log(`Ledger running at http://localhost:${PORT}`))).catch((error) => {
+  db.pool.query("SELECT 1").then(async () => {
+    await configurePush();
+    await deliverDueReminders();
+    setInterval(() => deliverDueReminders().catch((error) => console.error(error)), 30_000).unref();
+    app.listen(PORT, () => console.log(`Ledger running at http://localhost:${PORT}`));
+  }).catch((error) => {
     console.error(`Could not connect to MySQL: ${error.message}`);
     process.exit(1);
   });

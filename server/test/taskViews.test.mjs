@@ -19,7 +19,12 @@ test("My Day promotion expires after its calendar date", () => {
   assert.equal(isTaskInView(task, "today", day), true);
   assert.equal(isTaskInView(task, "all", day), true);
   assert.equal(isTaskInView(task, "today", "2026-10-07"), false);
-  assert.equal(isTaskInView(task, "all", "2026-10-07"), false);
+  assert.equal(isTaskInView(task, "all", "2026-10-07"), true);
+});
+
+test("unfinished missed My Day tasks remain visible in All tasks", () => {
+  assert.equal(isTaskInView({ ...customTask, myDay: "2026-10-05", done: false }, "all", day), true);
+  assert.equal(isTaskInView({ ...customTask, myDay: "2026-10-05", done: true }, "all", day), false);
 });
 
 test("important and planned custom tasks are promoted into All tasks", () => {

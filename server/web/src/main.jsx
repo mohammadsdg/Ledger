@@ -2,7 +2,9 @@ import React from "react";
 import { createRoot } from "react-dom/client";
 import { createTheme, CssBaseline, ThemeProvider } from "@mui/material";
 import { LocalizationProvider } from "@mui/x-date-pickers";
-import { AdapterDayjs } from "@mui/x-date-pickers/AdapterDayjs";
+import { AdapterMomentJalaali } from "@mui/x-date-pickers/AdapterMomentJalaali";
+import { faIR } from "@mui/x-date-pickers/locales";
+import moment from "moment-jalaali";
 import App from "./App";
 import "./styles.css";
 
@@ -21,11 +23,13 @@ const theme = createTheme({
   },
 });
 
+moment.loadPersian({ dialect: "persian-modern", usePersianDigits: true });
+
 createRoot(document.getElementById("root")).render(
   <React.StrictMode>
     <ThemeProvider theme={theme}>
       <CssBaseline />
-      <LocalizationProvider dateAdapter={AdapterDayjs}>
+      <LocalizationProvider dateAdapter={AdapterMomentJalaali} adapterLocale="fa" localeText={faIR.components.MuiLocalizationProvider.defaultProps.localeText}>
         <App />
       </LocalizationProvider>
     </ThemeProvider>

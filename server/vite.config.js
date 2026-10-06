@@ -12,7 +12,7 @@ module.exports = defineConfig({
     rollupOptions: {
       output: {
         manualChunks(id) {
-          if (id.includes("node_modules/@mui/x-date-pickers") || id.includes("node_modules/dayjs")) return "dates";
+          if (id.includes("node_modules/@mui/x-date-pickers") || id.includes("node_modules/dayjs") || id.includes("node_modules/moment") || id.includes("node_modules/jalaali-js")) return "dates";
           if (id.includes("node_modules")) return "vendor";
         },
       },

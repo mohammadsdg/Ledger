@@ -48,6 +48,7 @@ nav { display: grid; gap: 3px; }
 .taskTitle { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
 .taskMeta { display: flex; gap: 10px; color: var(--muted); font-size: 11px; }
 .taskMeta i { display: inline-flex; gap: 3px; align-items: center; font-style: normal; white-space: nowrap; }
+.taskMeta i.missed { color: #f5ad67; background: rgba(245,173,103,.1); border-radius: 10px; padding: 1px 6px; }
 .completed .taskTitle { text-decoration: line-through; color: var(--muted); }
 .starButton { color: var(--blue) !important; }
 .empty { padding: 70px 20px; text-align: center; color: var(--muted); animation: fadeIn .3s ease; }
@@ -62,6 +63,10 @@ nav { display: grid; gap: 3px; }
 .addStep { height: 49px; display: flex; align-items: center; gap: 12px; padding: 0 16px; color: var(--blue); }.addStep input { flex: 1; border: 0; outline: 0; background: none; color: #f4f7fb; }
 .actionCard button { min-height: 55px; width: 100%; border: 0; background: transparent; color: var(--muted); padding: 0 17px; display: flex; align-items: center; gap: 15px; cursor: pointer; text-align: left; transition: background .18s, color .18s; }.actionCard button:hover { background: #28313f; color: #fff; }.actionCard button.selected { color: var(--blue); }.actionCard button span { flex: 1; }
 .pickerRow { min-height: 61px; display: grid; grid-template-columns: 29px minmax(0,1fr); align-items: center; gap: 8px; padding: 7px 13px; border-bottom: 1px solid var(--line); color: var(--muted); }.pickerRow:last-child { border: 0; }.pickerRow > .MuiFormControl-root, .pickerRow > .MuiInputBase-root { width: 100%; }.pickerRow .MuiOutlinedInput-notchedOutline { border-color: transparent !important; }.pickerRow .MuiInputBase-root:hover { background: rgba(255,255,255,.025); }
+.pickerRow .notificationOn { color: var(--mint); filter: drop-shadow(0 0 7px rgba(101,214,173,.4)); }
+.MuiPickersLayout-root { direction: rtl; }
+.MuiPickersCalendarHeader-root, .MuiDayCalendar-header, .MuiDayCalendar-weekContainer { direction: rtl; }
+.MuiPickersLayout-root .MuiPickersToolbar-root { align-items: flex-end; }
 .noteCard { padding: 12px; }.noteCard .MuiOutlinedInput-notchedOutline { border: 0; }
 .detailFooter { min-height: 55px; display: flex; align-items: center; justify-content: space-between; padding: 0 12px; color: var(--muted); font-size: 11px; }
 
@@ -97,5 +102,7 @@ nav { display: grid; gap: 3px; }
   .quickAdd button { opacity: 1; transform: none; }
   .taskRow { min-height: 62px; border-radius: 9px; }.taskMeta { gap: 7px; max-width: 100%; overflow: hidden; }
   .loginCard { padding: 28px 22px; }
+  .MuiDialog-paper:has(.MuiPickersLayout-root) { width: calc(100% - 16px); max-height: calc(100% - 16px); margin: 8px; border-radius: 16px; }
+  .MuiPickersLayout-root { width: 100%; max-width: 100%; }
 }
 @media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation-duration: .01ms !important; transition-duration: .01ms !important; } }

@@ -99,10 +99,17 @@ Enable HTTPS (for example with Certbot) before using the production site. Set `N
 
 - **All tasks** contains tasks created there plus any task currently promoted to My Day, Important, or Planned. Ordinary tasks in custom lists stay out of All tasks.
 - **My Day** is date-based. Adding there or choosing “Add to My Day” records today’s date; the task automatically leaves My Day after the local calendar day changes.
+- An unfinished task missed from a previous My Day remains visible in All tasks with a Yesterday or Missed My Day label.
 - **Important** contains starred tasks.
 - **Planned** contains tasks with a due date or reminder.
-- Opening a task reveals steps, My Day, reminder, due date, repeat, and notes.
+- Opening a task reveals steps, My Day, reminder, due date, repeat, and notes. Reminder and due-date controls use the Persian Jalali calendar.
 - Completing a repeating task creates its next occurrence and resets its steps.
+
+## Notifications
+
+Ledger uses standards-based Web Push, so reminder notifications can arrive on installed Android PWAs and supported desktop browsers even when the Ledger tab is closed. The Node server must remain running, the site must use HTTPS, and the user must allow notifications when prompted.
+
+VAPID notification keys are generated automatically on first start and stored in the MySQL `app_settings` table, so they survive application restarts. Back up the Ledger database and do not delete these values while devices are subscribed. You can optionally set `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`, and `VAPID_SUBJECT` through the environment to manage the keys yourself.
 
 ## Install on a phone
 

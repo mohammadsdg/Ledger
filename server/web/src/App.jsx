@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import dayjs from "dayjs";
+import moment from "moment-jalaali";
 import {
   Add, CalendarMonth, Check, ChevronLeft, Close, DeleteOutline, EventRepeat,
   Logout, Menu, NotificationsNone, RadioButtonUnchecked, Star, StarBorder,
@@ -78,19 +79,21 @@ function Sidebar({ view, setView, lists, counts, onNewList, onDeleteList, mobile
   </>;
 }
 
-function TaskRow({ task, listName, onOpen, onToggleDone, onToggleImportant }) {
+function TaskRow({ task, listName, currentDay, onOpen, onToggleDone, onToggleImportant }) {
+  const missedMyDay = task.myDay && task.myDay < currentDay && !task.done;
+  const missedLabel = missedMyDay && dayjs(currentDay).diff(dayjs(task.myDay), "day") === 1 ? "Yesterday" : "Missed My Day";
   return <article className={`taskRow ${task.done ? "completed" : ""}`} onClick={() => onOpen(task.id)}>
     <IconButton className="checkButton" aria-label={task.done ? "Mark incomplete" : "Mark complete"} onClick={(event) => { event.stopPropagation(); onToggleDone(task); }}>
       {task.done ? <Check /> : <RadioButtonUnchecked />}
     </IconButton>
     <div className="taskCopy"><span className="taskTitle">{task.title}</span><span className="taskMeta">
-      {listName && <i>{listName}</i>}{task.myDay === todayKey() && <i><Sunny fontSize="inherit" /> My Day</i>}{task.dueDate && <i><CalendarMonth fontSize="inherit" /> {dayjs(task.dueDate).format("MMM D")}</i>}{task.steps?.length > 0 && <i>{task.steps.filter((s) => s.done).length}/{task.steps.length} steps</i>}
+      {listName && <i>{listName}</i>}{task.myDay === currentDay && <i><Sunny fontSize="inherit" /> My Day</i>}{missedMyDay && <i className="missed"><Sunny fontSize="inherit" /> {missedLabel}</i>}{task.dueDate && <i><CalendarMonth fontSize="inherit" /> {moment(task.dueDate).format("jD jMMM")}</i>}{task.steps?.length > 0 && <i>{task.steps.filter((s) => s.done).length}/{task.steps.length} steps</i>}
     </span></div>
     <Tooltip title={task.important ? "Remove from Important" : "Mark important"}><IconButton className="starButton" onClick={(event) => { event.stopPropagation(); onToggleImportant(task); }}>{task.important ? <Star /> : <StarBorder />}</IconButton></Tooltip>
   </article>;
 }
 
-function DetailPane({ task, onClose, onPatch, onDelete, onAddStep, onPatchStep, onDeleteStep }) {
+function DetailPane({ task, notificationsReady, onEnableNotifications, onClose, onPatch, onDelete, onAddStep, onPatchStep, onDeleteStep }) {
   const [stepTitle, setStepTitle] = useState("");
   const [title, setTitle] = useState(task?.title || "");
   const [note, setNote] = useState(task?.note || "");
@@ -100,7 +103,7 @@ function DetailPane({ task, onClose, onPatch, onDelete, onAddStep, onPatchStep, 
   const inMyDay = task.myDay === todayKey();
   async function addStep(event) { event.preventDefault(); if (!stepTitle.trim()) return; await onAddStep(task.id, stepTitle); setStepTitle(""); }
   async function setReminder(value) {
-    if (value?.isValid() && "Notification" in window && Notification.permission === "default") await Notification.requestPermission();
+    if (value?.isValid() && !(await onEnableNotifications())) return;
     onPatch(task.id, { reminderAt: value?.isValid() ? value.toISOString() : null });
   }
   return <aside className="detailPane" aria-label="Task details">
@@ -118,8 +121,8 @@ function DetailPane({ task, onClose, onPatch, onDelete, onAddStep, onPatchStep, 
       <button className={inMyDay ? "selected" : ""} onClick={() => onPatch(task.id, { myDay: inMyDay ? null : todayKey() })}><Sunny /><span>{inMyDay ? "Added to My Day" : "Add to My Day"}</span>{inMyDay && <Check />}</button>
     </section>
     <section className="detailCard scheduleCard">
-      <div className="pickerRow"><NotificationsNone /><DateTimePicker label="Remind me" value={task.reminderAt ? dayjs(task.reminderAt) : null} onAccept={setReminder} slotProps={{ field: { clearable: true, onClear: () => setReminder(null) } }} /></div>
-      <div className="pickerRow"><CalendarMonth /><DatePicker label="Due date" value={task.dueDate ? dayjs(task.dueDate) : null} onAccept={(value) => onPatch(task.id, { dueDate: value?.isValid() ? value.format("YYYY-MM-DD") : null })} slotProps={{ field: { clearable: true, onClear: () => onPatch(task.id, { dueDate: null }) } }} /></div>
+      <div className="pickerRow"><NotificationsNone className={notificationsReady ? "notificationOn" : ""} /><DateTimePicker label="یادآوری" value={task.reminderAt ? moment(task.reminderAt) : null} onAccept={setReminder} slotProps={{ field: { clearable: true, onClear: () => setReminder(null) } }} /></div>
+      <div className="pickerRow"><CalendarMonth /><DatePicker label="تاریخ سررسید" value={task.dueDate ? moment(task.dueDate, "YYYY-MM-DD") : null} onAccept={(value) => onPatch(task.id, { dueDate: value?.isValid() ? value.format("YYYY-MM-DD") : null })} slotProps={{ field: { clearable: true, onClear: () => onPatch(task.id, { dueDate: null }) } }} /></div>
       <div className="pickerRow"><EventRepeat /><Select displayEmpty value={task.repeatRule || ""} onChange={(e) => onPatch(task.id, { repeatRule: e.target.value || null })}>
         <MenuItem value="">Does not repeat</MenuItem><MenuItem value="daily">Daily</MenuItem><MenuItem value="weekdays">Weekdays</MenuItem><MenuItem value="weekly">Weekly</MenuItem><MenuItem value="monthly">Monthly</MenuItem><MenuItem value="yearly">Yearly</MenuItem>
       </Select></div>
@@ -140,21 +143,14 @@ function App() {
   const [newListOpen, setNewListOpen] = useState(false);
   const [newListName, setNewListName] = useState("");
   const [currentDay, setCurrentDay] = useState(todayKey());
+  const [notificationsReady, setNotificationsReady] = useState(false);
 
   const fail = (error) => { if (error.unauthorized) setAuthenticated(false); else setError(error.message); };
-  async function load() { try { setState(await request("/state")); setAuthenticated(true); } catch (error) { fail(error); } }
+  async function load() { try { const next = await request("/state"); setState(next); setAuthenticated(true); const taskId = new URLSearchParams(location.search).get("task"); if (taskId && next.tasks.some((task) => task.id === taskId)) setSelectedId(taskId); } catch (error) { fail(error); } }
   useEffect(() => { fetch(`${API}/auth/status`).then((r) => r.json()).then((x) => x.authenticated ? load() : setAuthenticated(false)).catch(() => setAuthenticated(false)); }, []);
   useEffect(() => { const refresh = () => !document.hidden && authenticated && load(); document.addEventListener("visibilitychange", refresh); return () => document.removeEventListener("visibilitychange", refresh); }, [authenticated]);
   useEffect(() => { const timer = setInterval(() => setCurrentDay(todayKey()), 60_000); return () => clearInterval(timer); }, []);
-  useEffect(() => {
-    if (!("Notification" in window) || Notification.permission !== "granted") return undefined;
-    const timers = state.tasks.filter((task) => task.reminderAt && !task.done).map((task) => {
-      const delay = new Date(task.reminderAt).getTime() - Date.now();
-      if (delay <= 0 || delay > 2_147_000_000) return null;
-      return setTimeout(() => new Notification(task.title, { body: "Ledger reminder", icon: "/icons/icon-192.png", tag: `ledger-${task.id}` }), delay);
-    }).filter(Boolean);
-    return () => timers.forEach(clearTimeout);
-  }, [state.tasks]);
+  useEffect(() => { if (authenticated && "Notification" in window && Notification.permission === "granted") enableNotifications().catch(() => {}); }, [authenticated]);
 
   const selectedTask = state.tasks.find((task) => task.id === selectedId);
   const visibleTasks = useMemo(() => state.tasks.filter((task) => isTaskInView(task, view, currentDay)), [state.tasks, view, currentDay]);
@@ -162,6 +158,27 @@ function App() {
   const title = views.find((x) => x.id === view)?.label || state.lists.find((x) => x.id === view)?.name || "Tasks";
 
   function replaceTask(updated) { setState((old) => ({ ...old, tasks: old.tasks.map((task) => task.id === updated.id ? updated : task) })); }
+  async function enableNotifications() {
+    if (!("serviceWorker" in navigator) || !("PushManager" in window) || !("Notification" in window)) throw new Error("Push notifications are not supported on this device.");
+    const permission = Notification.permission === "granted" ? "granted" : await Notification.requestPermission();
+    if (permission !== "granted") throw new Error("Allow notifications to receive task reminders.");
+    const registration = await navigator.serviceWorker.ready;
+    const { publicKey } = await request("/push/public-key");
+    let subscription = await registration.pushManager.getSubscription();
+    if (!subscription) subscription = await registration.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: urlBase64ToUint8Array(publicKey) });
+    await request("/push/subscribe", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(subscription) });
+    setNotificationsReady(true);
+    return true;
+  }
+  async function disableNotifications() {
+    if (!("serviceWorker" in navigator) || !("PushManager" in window)) return;
+    const registration = await navigator.serviceWorker.ready;
+    const subscription = await registration.pushManager.getSubscription();
+    if (!subscription) return;
+    await request("/push/unsubscribe", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ endpoint: subscription.endpoint }) });
+    await subscription.unsubscribe();
+    setNotificationsReady(false);
+  }
   async function patchTask(id, patch, localOnly = false) {
     if (localOnly) { setState((old) => ({ ...old, tasks: old.tasks.map((task) => task.id === id ? { ...task, ...patch } : task) })); return; }
     try {
@@ -182,7 +199,8 @@ function App() {
   async function deleteStep(id) { try { await request(`/steps/${id}`, { method: "DELETE" }); setState((old) => ({ ...old, tasks: old.tasks.map((task) => ({ ...task, steps: task.steps?.filter((x) => x.id !== id) })) })); } catch (error) { fail(error); } }
   async function createList() { const name = newListName.trim(); if (!name) return; try { const list = await request("/lists", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name }) }); setState((old) => ({ ...old, lists: [...old.lists, list] })); setView(list.id); setNewListName(""); setNewListOpen(false); } catch (error) { fail(error); } }
   async function deleteList(list) { if (!confirm(`Delete “${list.name}” and its tasks?`)) return; try { await request(`/lists/${list.id}`, { method: "DELETE" }); setState((old) => ({ lists: old.lists.filter((x) => x.id !== list.id), tasks: old.tasks.filter((x) => x.listId !== list.id) })); if (view === list.id) setView("today"); } catch (error) { fail(error); } }
-  async function logout() { await fetch(`${API}/auth/logout`, { method: "POST" }); setAuthenticated(false); }
+  async function logout() { try { await disableNotifications(); } catch (_error) {} await fetch(`${API}/auth/logout`, { method: "POST" }); setAuthenticated(false); }
+  function closeSelectedTask() { setSelectedId(null); if (new URLSearchParams(location.search).has("task")) history.replaceState(null, "", location.pathname); }
 
   if (authenticated === null) return <div className="centerLoader"><CircularProgress /></div>;
   if (!authenticated) return <Login onLogin={load} />;
@@ -193,15 +211,21 @@ function App() {
       <div className="taskScroller">
         <form className="quickAdd" onSubmit={addTask}><Add /><input aria-label={`Add a task to ${title}`} placeholder="Add a task" value={addTitle} onChange={(e) => setAddTitle(e.target.value)} /><button type="submit">Add</button></form>
         <section className="taskList">
-          {visibleTasks.map((task) => <TaskRow key={task.id} task={task} listName={state.lists.find((x) => x.id === task.listId)?.name} onOpen={setSelectedId} onToggleDone={(x) => patchTask(x.id, { done: !x.done })} onToggleImportant={(x) => patchTask(x.id, { important: !x.important })} />)}
+          {visibleTasks.map((task) => <TaskRow key={task.id} task={task} currentDay={currentDay} listName={state.lists.find((x) => x.id === task.listId)?.name} onOpen={setSelectedId} onToggleDone={(x) => patchTask(x.id, { done: !x.done })} onToggleImportant={(x) => patchTask(x.id, { important: !x.important })} />)}
           {!visibleTasks.length && <div className="empty"><TaskAlt /><h2>Nothing here</h2><p>Add a task when you’re ready.</p></div>}
         </section>
       </div>
     </main>
-    <DetailPane task={selectedTask} onClose={() => setSelectedId(null)} onPatch={patchTask} onDelete={deleteTask} onAddStep={addStep} onPatchStep={patchStep} onDeleteStep={deleteStep} />
+    <DetailPane task={selectedTask} notificationsReady={notificationsReady} onEnableNotifications={async () => { try { return await enableNotifications(); } catch (error) { fail(error); return false; } }} onClose={closeSelectedTask} onPatch={patchTask} onDelete={deleteTask} onAddStep={addStep} onPatchStep={patchStep} onDeleteStep={deleteStep} />
     <Dialog open={newListOpen} onClose={() => setNewListOpen(false)} fullWidth maxWidth="xs"><DialogTitle>New list</DialogTitle><DialogContent><TextField autoFocus fullWidth margin="dense" label="List name" value={newListName} onChange={(e) => setNewListName(e.target.value)} onKeyDown={(e) => e.key === "Enter" && createList()} /></DialogContent><DialogActions><Button onClick={() => setNewListOpen(false)}>Cancel</Button><Button variant="contained" onClick={createList}>Create</Button></DialogActions></Dialog>
     <Snackbar open={!!error} autoHideDuration={5000} onClose={() => setError("")}><Alert severity="error" onClose={() => setError("")}>{error}</Alert></Snackbar>
   </div>;
 }
 
 export default App;
+
+function urlBase64ToUint8Array(value) {
+  const padding = "=".repeat((4 - value.length % 4) % 4);
+  const base64 = (value + padding).replace(/-/g, "+").replace(/_/g, "/");
+  return Uint8Array.from(atob(base64), (character) => character.charCodeAt(0));
+}
