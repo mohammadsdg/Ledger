@@ -1,6 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import dayjs from "dayjs";
-import moment from "moment-jalaali";
 import {
   Add, CalendarMonth, Check, ChevronLeft, ChevronRight, Close, DeleteOutline, EventRepeat,
   Logout, Menu, NotificationsNone, RadioButtonUnchecked, Star, StarBorder,
@@ -13,6 +12,7 @@ import {
 import { DateCalendar, TimeClock } from "@mui/x-date-pickers";
 import { isTaskInView } from "./taskViews.mjs";
 import { emptyState, normalizeState, readCachedState, removeCachedState, writeCachedState } from "./offlineState.mjs";
+import { formatJalali, formatReminderTime, moment, toStorageDate } from "./dates.mjs";
 
 const API = "/api";
 const todayKey = () => dayjs().format("YYYY-MM-DD");
@@ -91,7 +91,7 @@ function TaskRow({ task, listName, currentDay, onOpen, onToggleDone, onToggleImp
       {task.done ? <Check /> : <RadioButtonUnchecked />}
     </IconButton>
     <div className="taskCopy"><span className="taskTitle">{task.title}</span><span className="taskMeta">
-      {listName && <i>{listName}</i>}{task.myDay === currentDay && <i><Sunny fontSize="inherit" /> My Day</i>}{missedMyDay && <i className="missed"><Sunny fontSize="inherit" /> {missedLabel}</i>}{task.dueDate && <i><CalendarMonth fontSize="inherit" /> {moment(task.dueDate).format("jD jMMM")}</i>}{task.steps?.length > 0 && <i>{task.steps.filter((s) => s.done).length}/{task.steps.length} steps</i>}
+      {listName && <i>{listName}</i>}{task.myDay === currentDay && <i><Sunny fontSize="inherit" /> My Day</i>}{missedMyDay && <i className="missed"><Sunny fontSize="inherit" /> {missedLabel}</i>}{task.dueDate && <i><CalendarMonth fontSize="inherit" /> {formatJalali(task.dueDate, "jD jMMMM")}</i>}{task.steps?.length > 0 && <i>{task.steps.filter((s) => s.done).length}/{task.steps.length} steps</i>}
     </span></div>
     <Tooltip title={task.important ? "Remove from Important" : "Mark important"}><IconButton className="starButton" onClick={(event) => { event.stopPropagation(); onToggleImportant(task); }}>{task.important ? <Star /> : <StarBorder />}</IconButton></Tooltip>
   </article>;
@@ -144,7 +144,7 @@ function ReminderControl({ taskId, value, notificationsReady, onSave }) {
   }
 
   const reminderLabel = value && moment(value).isValid()
-    ? moment(value).format("dddd, jD jMMMM · HH:mm")
+    ? `${formatJalali(value)} · ${formatReminderTime(value)}`
     : null;
 
   return <>
@@ -163,8 +163,9 @@ function ReminderControl({ taskId, value, notificationsReady, onSave }) {
         {step === "date" ? <div className="reminderPicker">
           <DateCalendar value={date} onChange={(next) => next && setDate(next)} disablePast sx={{ width: "100%", maxWidth: 320 }} />
         </div> : <>
-          <div className="reminderDateSummary"><CalendarMonth /><span>{date.format("dddd, jD jMMMM jYYYY")}</span><Button size="small" onClick={() => setStep("date")}>Change</Button></div>
-          <div className="reminderPicker"><TimeClock value={time} onChange={(next) => next && setTime(next)} views={["hours", "minutes"]} minutesStep={5} sx={{ width: "100%", maxWidth: 320 }} /></div>
+          <div className="reminderDateSummary"><CalendarMonth /><span>{formatJalali(date)}</span><Button size="small" onClick={() => setStep("date")}>Change</Button></div>
+          <div className="reminderTimePreview" aria-live="polite"><strong>{formatReminderTime(time)}</strong><span>Choose AM or PM below</span></div>
+          <div className="reminderPicker timePicker"><TimeClock value={time} onChange={(next) => next && setTime(next)} views={["hours", "minutes"]} minutesStep={5} ampm sx={{ width: "100%", maxWidth: 320 }} /></div>
         </>}
         {error && <p className="reminderError">{error}</p>}
       </DialogContent>
@@ -200,7 +201,7 @@ function DueDateControl({ taskId, value, onSave }) {
   }
 
   async function saveDueDate() {
-    await onSave(date.format("YYYY-MM-DD"));
+    await onSave(toStorageDate(date));
     closeDueDate();
   }
 
@@ -210,7 +211,7 @@ function DueDateControl({ taskId, value, onSave }) {
   }
 
   const dueDateLabel = value && moment(value, "YYYY-MM-DD", true).isValid()
-    ? moment(value, "YYYY-MM-DD").format("dddd, jD jMMMM jYYYY")
+    ? formatJalali(moment(value, "YYYY-MM-DD"))
     : null;
 
   return <>
@@ -222,7 +223,7 @@ function DueDateControl({ taskId, value, onSave }) {
     <Dialog className="reminderDialog dueDateDialog" open={open} onClose={closeDueDate} fullWidth maxWidth="xs">
       <DialogTitle>Set a due date</DialogTitle>
       <DialogContent dividers>
-        <div className="dueDateHeading"><CalendarMonth /><span>{date.format("dddd, jD jMMMM jYYYY")}</span></div>
+        <div className="dueDateHeading"><CalendarMonth /><span>{formatJalali(date)}</span></div>
         <div className="reminderPicker dueDatePicker"><DateCalendar value={date} onChange={(next) => next && setDate(next)} sx={{ width: "100%", maxWidth: 320 }} /></div>
       </DialogContent>
       <DialogActions className="reminderActions">
@@ -271,7 +272,7 @@ function DetailPane({ task, notificationsReady, onEnableNotifications, onClose, 
       </Select></div>
     </section>
     <section className="detailCard noteCard"><TextField fullWidth multiline minRows={5} placeholder="Add note" value={note} onChange={(e) => setNote(e.target.value)} onBlur={() => note !== task.note && onPatch(task.id, { note })} /></section>
-    <footer className="detailFooter"><span>Created {dayjs(task.createdAt).format("MMM D, YYYY")}</span><IconButton color="error" onClick={() => onDelete(task.id)}><DeleteOutline /></IconButton></footer>
+    <footer className="detailFooter"><span>Created {formatJalali(task.createdAt)}</span><IconButton color="error" onClick={() => onDelete(task.id)}><DeleteOutline /></IconButton></footer>
   </aside>;
 }
 
@@ -488,7 +489,7 @@ function App() {
   return <div className={`appShell ${selectedTask ? "detailsOpen" : ""}`} style={{ "--sidebar-width": `${sidebarWidth}px` }}>
     <Sidebar view={view} onSelectView={navigateView} lists={state.lists} counts={counts} onNewList={openNewList} onDeleteList={deleteList} mobileOpen={mobileOpen} closeMobile={closeMobileNav} onLogout={logout} onResizeStart={startSidebarResize} />
     <main className="taskArea" onPointerDown={startMobileSwipe} onPointerUp={finishMobileSwipe} onPointerCancel={() => { swipeStart.current = null; }}>
-      <header className="topbar"><IconButton className="menuButton" onClick={openMobileNav}><Menu /></IconButton><div><h1>{title}</h1><span>{dayjs().format("dddd, MMMM D")}</span>{(!online || syncPending) && <span className={`syncStatus ${online ? "syncing" : "offline"}`}>{online ? "Syncing changes…" : "Offline · changes will sync when connected"}</span>}</div></header>
+      <header className="topbar"><IconButton className="menuButton" onClick={openMobileNav}><Menu /></IconButton><div><h1>{title}</h1><span className="dateLine"><span>{formatJalali(moment())}</span><span className={`syncBadge ${!online ? "offline" : syncPending ? "syncing" : "idle"}`} role="status" aria-label={!online ? "Offline; changes will sync when connected" : syncPending ? "Syncing changes" : "All changes synced"} title={!online ? "Offline — saved on this device" : syncPending ? "Syncing" : "Synced"}><i /></span></span></div></header>
       <div className="taskScroller">
         <form className="quickAdd" onSubmit={addTask}><Add /><input aria-label={`Add a task to ${title}`} placeholder="Add a task" value={addTitle} onChange={(e) => setAddTitle(e.target.value)} /><button type="submit">Add</button></form>
         <section className="taskList">
