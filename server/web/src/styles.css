@@ -55,6 +55,14 @@ nav { display: grid; gap: 3px; }
 .taskMeta i { display: inline-flex; gap: 3px; align-items: center; font-style: normal; white-space: nowrap; }
 .taskMeta i.missed { color: #f5ad67; background: rgba(245,173,103,.1); border-radius: 10px; padding: 1px 6px; }
 .completed .taskTitle { text-decoration: line-through; color: var(--muted); }
+.completedSection { margin-top: 10px; }
+.completedToggle { width: 100%; min-height: 49px; display: flex; align-items: center; gap: 10px; padding: 0 10px; border: 0; border-bottom: 1px solid #34383b; background: transparent; color: #e9e7e0; cursor: pointer; text-align: left; transition: color .18s ease, background .18s ease; }
+.completedToggle:hover { color: var(--accent); background: rgba(255,255,255,.018); }
+.completedToggle svg { margin-left: -6px; color: var(--muted); font-size: 20px; transition: transform .22s cubic-bezier(.2,.8,.2,1), color .18s ease; }
+.completedSection.open .completedToggle svg { color: var(--accent); transform: rotate(90deg); }
+.completedToggle strong { font-size: 14px; font-weight: 600; }
+.completedToggle span { color: var(--muted); font-size: 13px; }
+.completedTasks { display: grid; gap: 7px; padding-top: 8px; animation: completedIn .22s cubic-bezier(.2,.8,.2,1) both; }
 .starButton { color: var(--accent) !important; }
 .empty { padding: 70px 20px; text-align: center; color: var(--muted); animation: fadeIn .3s ease; }
 .empty > svg { font-size: 42px; opacity: .45; }
@@ -109,6 +117,7 @@ nav { display: grid; gap: 3px; }
 @keyframes detailIn { from { opacity: 0; transform: translateX(24px); } }
 @keyframes loginIn { from { opacity: 0; transform: translateY(12px) scale(.985); } }
 @keyframes fadeIn { from { opacity: 0; } }
+@keyframes completedIn { from { opacity: 0; transform: translateY(-5px); } }
 
 @media (max-width: 1050px) {
   .appShell.detailsOpen { grid-template-columns: var(--sidebar-width, 220px) minmax(280px, 1fr) 350px; }

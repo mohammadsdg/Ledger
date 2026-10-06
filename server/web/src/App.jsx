@@ -276,6 +276,7 @@ function App() {
   const [newListName, setNewListName] = useState("");
   const [currentDay, setCurrentDay] = useState(todayKey());
   const [notificationsReady, setNotificationsReady] = useState(false);
+  const [completedOpen, setCompletedOpen] = useState(false);
   const [sidebarWidth, setSidebarWidth] = useState(() => Math.min(380, Math.max(190, Number(localStorage.getItem("ledger-sidebar-width")) || 250)));
 
   const fail = (error) => { if (error.unauthorized) setAuthenticated(false); else setError(error.message); };
@@ -302,9 +303,12 @@ function App() {
   useEffect(() => { const refresh = () => !document.hidden && authenticated && load(); document.addEventListener("visibilitychange", refresh); return () => document.removeEventListener("visibilitychange", refresh); }, [authenticated]);
   useEffect(() => { const timer = setInterval(() => setCurrentDay(todayKey()), 60_000); return () => clearInterval(timer); }, []);
   useEffect(() => { if (authenticated && "Notification" in window && Notification.permission === "granted") enableNotifications().catch(() => {}); }, [authenticated]);
+  useEffect(() => setCompletedOpen(false), [view]);
 
   const selectedTask = state.tasks.find((task) => task.id === selectedId);
   const visibleTasks = useMemo(() => state.tasks.filter((task) => isTaskInView(task, view, currentDay)), [state.tasks, view, currentDay]);
+  const activeTasks = useMemo(() => visibleTasks.filter((task) => !task.done), [visibleTasks]);
+  const completedTasks = useMemo(() => visibleTasks.filter((task) => task.done), [visibleTasks]);
   const counts = useMemo(() => Object.fromEntries([...views.map((x) => x.id), ...state.lists.map((x) => x.id)].map((id) => [id, state.tasks.filter((task) => !task.done && isTaskInView(task, id, currentDay)).length])), [state, currentDay]);
   const title = views.find((x) => x.id === view)?.label || state.lists.find((x) => x.id === view)?.name || "Tasks";
 
@@ -395,8 +399,16 @@ function App() {
       <div className="taskScroller">
         <form className="quickAdd" onSubmit={addTask}><Add /><input aria-label={`Add a task to ${title}`} placeholder="Add a task" value={addTitle} onChange={(e) => setAddTitle(e.target.value)} /><button type="submit">Add</button></form>
         <section className="taskList">
-          {visibleTasks.map((task) => <TaskRow key={task.id} task={task} currentDay={currentDay} listName={state.lists.find((x) => x.id === task.listId)?.name} onOpen={openTask} onToggleDone={(x) => patchTask(x.id, { done: !x.done })} onToggleImportant={(x) => patchTask(x.id, { important: !x.important })} />)}
+          {activeTasks.map((task) => <TaskRow key={task.id} task={task} currentDay={currentDay} listName={state.lists.find((x) => x.id === task.listId)?.name} onOpen={openTask} onToggleDone={(x) => patchTask(x.id, { done: !x.done })} onToggleImportant={(x) => patchTask(x.id, { important: !x.important })} />)}
           {!visibleTasks.length && <div className="empty"><TaskAlt /><h2>Nothing here</h2><p>Add a task when you’re ready.</p></div>}
+          {!!completedTasks.length && <section className={`completedSection ${completedOpen ? "open" : ""}`}>
+            <button className="completedToggle" type="button" aria-expanded={completedOpen} aria-controls="completed-tasks" onClick={() => setCompletedOpen((open) => !open)}>
+              <ChevronRight /><strong>Completed</strong><span>{completedTasks.length}</span>
+            </button>
+            {completedOpen && <div className="completedTasks" id="completed-tasks">
+              {completedTasks.map((task) => <TaskRow key={task.id} task={task} currentDay={currentDay} listName={state.lists.find((x) => x.id === task.listId)?.name} onOpen={openTask} onToggleDone={(x) => patchTask(x.id, { done: !x.done })} onToggleImportant={(x) => patchTask(x.id, { important: !x.important })} />)}
+            </div>}
+          </section>}
         </section>
       </div>
     </main>
