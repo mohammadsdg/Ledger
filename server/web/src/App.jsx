@@ -58,7 +58,7 @@ const views = [
   { id: "all", label: "All tasks", icon: TaskAlt },
 ];
 
-function Sidebar({ view, onSelectView, lists, counts, onNewList, onDeleteList, mobileOpen, closeMobile, onLogout }) {
+function Sidebar({ view, onSelectView, lists, counts, onNewList, onDeleteList, mobileOpen, closeMobile, onLogout, onResizeStart }) {
   return <>
     {mobileOpen && <button className="scrim" aria-label="Close navigation" onClick={closeMobile} />}
     <aside className={`sidebar ${mobileOpen ? "open" : ""}`}>
@@ -75,6 +75,7 @@ function Sidebar({ view, onSelectView, lists, counts, onNewList, onDeleteList, m
           <IconButton className="deleteList" size="small" onClick={() => onDeleteList(list)}><DeleteOutline fontSize="small" /></IconButton>
         </div>)}
       </nav>
+      <div className="sidebarResizeHandle" aria-hidden="true" onPointerDown={onResizeStart} />
     </aside>
   </>;
 }
@@ -144,6 +145,7 @@ function App() {
   const [newListName, setNewListName] = useState("");
   const [currentDay, setCurrentDay] = useState(todayKey());
   const [notificationsReady, setNotificationsReady] = useState(false);
+  const [sidebarWidth, setSidebarWidth] = useState(() => Math.min(380, Math.max(190, Number(localStorage.getItem("ledger-sidebar-width")) || 250)));
 
   const fail = (error) => { if (error.unauthorized) setAuthenticated(false); else setError(error.message); };
   async function load() { try { const next = await request("/state"); setState(next); setAuthenticated(true); const taskId = new URLSearchParams(location.search).get("task"); if (taskId && next.tasks.some((task) => task.id === taskId)) setSelectedId(taskId); } catch (error) { fail(error); } }
@@ -230,11 +232,33 @@ function App() {
   function closeMobileNav() { if (history.state?.layer === "sidebar") history.back(); else setMobileOpen(false); }
   function openNewList() { history.pushState({ ledger: true, view, layer: "new-list" }, "", location.pathname); setNewListOpen(true); }
   function closeNewList() { if (history.state?.layer === "new-list") history.back(); else setNewListOpen(false); }
+  function startSidebarResize(event) {
+    if (innerWidth <= 800) return;
+    event.preventDefault();
+    const startX = event.clientX;
+    const startWidth = sidebarWidth;
+    let finalWidth = startWidth;
+    document.body.classList.add("resizingSidebar");
+    const move = (moveEvent) => {
+      finalWidth = Math.min(380, Math.max(190, startWidth + moveEvent.clientX - startX));
+      setSidebarWidth(finalWidth);
+    };
+    const stop = () => {
+      localStorage.setItem("ledger-sidebar-width", String(Math.round(finalWidth)));
+      document.body.classList.remove("resizingSidebar");
+      removeEventListener("pointermove", move);
+      removeEventListener("pointerup", stop);
+      removeEventListener("pointercancel", stop);
+    };
+    addEventListener("pointermove", move);
+    addEventListener("pointerup", stop);
+    addEventListener("pointercancel", stop);
+  }
 
   if (authenticated === null) return <div className="centerLoader"><CircularProgress /></div>;
   if (!authenticated) return <Login onLogin={load} />;
-  return <div className={`appShell ${selectedTask ? "detailsOpen" : ""}`}>
-    <Sidebar view={view} onSelectView={navigateView} lists={state.lists} counts={counts} onNewList={openNewList} onDeleteList={deleteList} mobileOpen={mobileOpen} closeMobile={closeMobileNav} onLogout={logout} />
+  return <div className={`appShell ${selectedTask ? "detailsOpen" : ""}`} style={{ "--sidebar-width": `${sidebarWidth}px` }}>
+    <Sidebar view={view} onSelectView={navigateView} lists={state.lists} counts={counts} onNewList={openNewList} onDeleteList={deleteList} mobileOpen={mobileOpen} closeMobile={closeMobileNav} onLogout={logout} onResizeStart={startSidebarResize} />
     <main className="taskArea">
       <header className="topbar"><IconButton className="menuButton" onClick={openMobileNav}><Menu /></IconButton><div><h1>{title}</h1><span>{dayjs().format("dddd, MMMM D")}</span></div></header>
       <div className="taskScroller">
