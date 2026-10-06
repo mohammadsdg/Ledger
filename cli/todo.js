@@ -5,7 +5,7 @@ const { selectMenu, promptText, confirmPrompt, pause, c } = require("./lib/ui");
 
 const KNOWN_COMMANDS = [
   "add", "list", "lists", "done", "undone", "today", "rm", "delete",
-  "fetch", "push", "menu", "help",
+  "fetch", "push", "menu", "help", "--help", "-h",
 ];
 
 // ---------- tiny arg parser ----------
@@ -499,7 +499,9 @@ async function main() {
     case "fetch": return cmdFetch();
     case "push": return cmdPush();
     case "menu": return runInteractiveMenu();
-    case "help": return printHelp();
+    case "help":
+    case "--help":
+    case "-h": return printHelp();
   }
 }
 

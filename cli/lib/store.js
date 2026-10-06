@@ -9,7 +9,7 @@ const FILE = path.join(DIR, "cache.json");
 function ensure() {
   if (!fs.existsSync(DIR)) fs.mkdirSync(DIR, { recursive: true });
   if (!fs.existsSync(FILE)) {
-    write({ lists: [], tasks: [], deletedLists: [], deletedTasks: [], lastSyncedAt: null });
+    write({ lists: [], tasks: [], deletedLists: [], deletedTasks: [], deletedSteps: [], lastSyncedAt: null });
   }
 }
 
@@ -24,6 +24,7 @@ function read() {
   }));
   state.deletedLists = state.deletedLists || [];
   state.deletedTasks = state.deletedTasks || [];
+  state.deletedSteps = state.deletedSteps || [];
   return state;
 }
 

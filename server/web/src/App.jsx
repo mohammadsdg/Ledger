@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import dayjs from "dayjs";
 import moment from "moment-jalaali";
 import {
@@ -12,17 +12,20 @@ import {
 } from "@mui/material";
 import { DateCalendar, TimeClock } from "@mui/x-date-pickers";
 import { isTaskInView } from "./taskViews.mjs";
+import { emptyState, normalizeState, readCachedState, removeCachedState, writeCachedState } from "./offlineState.mjs";
 
 const API = "/api";
 const todayKey = () => dayjs().format("YYYY-MM-DD");
 const SYSTEM_IDS = new Set(["all"]);
+const makeId = () => crypto.randomUUID();
+const nowISO = () => new Date().toISOString();
 
 async function request(path, options = {}) {
   const response = await fetch(`${API}${path}`, options);
   if (response.status === 401) throw Object.assign(new Error("Please sign in again"), { unauthorized: true });
   if (!response.ok) {
     const body = await response.json().catch(() => ({}));
-    throw new Error(body.error || `Request failed (${response.status})`);
+    throw Object.assign(new Error(body.error || `Request failed (${response.status})`), { status: response.status });
   }
   return response.status === 204 ? null : response.json();
 }
@@ -140,10 +143,14 @@ function ReminderControl({ taskId, value, notificationsReady, onSave }) {
     if (await onSave(null)) closeReminder();
   }
 
+  const reminderLabel = value && moment(value).isValid()
+    ? moment(value).format("dddd, jD jMMMM · HH:mm")
+    : null;
+
   return <>
     <button type="button" className={`reminderRow ${value ? "hasValue" : ""}`} onClick={openReminder}>
       <span className={`reminderIcon ${notificationsReady ? "ready" : ""}`}><NotificationsNone /></span>
-      <span className="reminderCopy"><strong>Remind me</strong></span>
+      <span className="reminderCopy"><strong>Remind me</strong>{reminderLabel && <small>{reminderLabel}</small>}</span>
       <ChevronRight className="reminderChevron" />
     </button>
     <Dialog className="reminderDialog" open={open} onClose={closeReminder} fullWidth maxWidth="xs">
@@ -202,10 +209,14 @@ function DueDateControl({ taskId, value, onSave }) {
     closeDueDate();
   }
 
+  const dueDateLabel = value && moment(value, "YYYY-MM-DD", true).isValid()
+    ? moment(value, "YYYY-MM-DD").format("dddd, jD jMMMM jYYYY")
+    : null;
+
   return <>
     <button type="button" className={`reminderRow dueDateRow ${value ? "hasValue" : ""}`} onClick={openDueDate}>
       <span className="reminderIcon"><CalendarMonth /></span>
-      <span className="reminderCopy"><strong>Due date</strong></span>
+      <span className="reminderCopy"><strong>Due date</strong>{dueDateLabel && <small>{dueDateLabel}</small>}</span>
       <ChevronRight className="reminderChevron" />
     </button>
     <Dialog className="reminderDialog dueDateDialog" open={open} onClose={closeDueDate} fullWidth maxWidth="xs">
@@ -265,8 +276,11 @@ function DetailPane({ task, notificationsReady, onEnableNotifications, onClose, 
 }
 
 function App() {
+  const cachedAtStartup = useRef(readCachedState());
   const [authenticated, setAuthenticated] = useState(null);
-  const [state, setState] = useState({ lists: [], tasks: [] });
+  const [state, setState] = useState(() => cachedAtStartup.current || emptyState());
+  const stateRef = useRef(state);
+  const stateVersion = useRef(0);
   const [view, setView] = useState("today");
   const [selectedId, setSelectedId] = useState(null);
   const [mobileOpen, setMobileOpen] = useState(false);
@@ -277,10 +291,40 @@ function App() {
   const [currentDay, setCurrentDay] = useState(todayKey());
   const [notificationsReady, setNotificationsReady] = useState(false);
   const [completedOpen, setCompletedOpen] = useState(false);
+  const [syncPending, setSyncPending] = useState(false);
+  const [online, setOnline] = useState(navigator.onLine);
+  const swipeStart = useRef(null);
   const [sidebarWidth, setSidebarWidth] = useState(() => Math.min(380, Math.max(190, Number(localStorage.getItem("ledger-sidebar-width")) || 250)));
 
   const fail = (error) => { if (error.unauthorized) setAuthenticated(false); else setError(error.message); };
-  async function load() { try { const next = await request("/state"); setState(next); setAuthenticated(true); const taskId = new URLSearchParams(location.search).get("task"); if (taskId && next.tasks.some((task) => task.id === taskId)) setSelectedId(taskId); } catch (error) { fail(error); } }
+  function commitState(update, dirty = true) {
+    const next = normalizeState(typeof update === "function" ? update(stateRef.current) : update);
+    stateRef.current = next;
+    stateVersion.current += 1;
+    setState(next);
+    writeCachedState(next);
+    if (dirty) setSyncPending(true);
+    return next;
+  }
+  async function load() {
+    const version = stateVersion.current;
+    try {
+      const next = await request("/sync", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(stateRef.current) });
+      const changedWhileSyncing = version !== stateVersion.current;
+      if (!changedWhileSyncing) commitState(next, false);
+      setSyncPending(changedWhileSyncing);
+      setOnline(true);
+      setAuthenticated(true);
+      const taskId = new URLSearchParams(location.search).get("task");
+      if (taskId && next.tasks.some((task) => task.id === taskId)) setSelectedId(taskId);
+      if (changedWhileSyncing) queueMicrotask(() => load());
+    } catch (error) {
+      const disconnected = error instanceof TypeError || !navigator.onLine;
+      setOnline(!disconnected);
+      if (error.unauthorized) fail(error);
+      else if (!disconnected || (!stateRef.current.lists.length && !stateRef.current.tasks.length)) fail(error);
+    }
+  }
   useEffect(() => {
     if (!history.state?.ledger) {
       const taskId = new URLSearchParams(location.search).get("task");
@@ -299,8 +343,16 @@ function App() {
     addEventListener("popstate", onPopState);
     return () => removeEventListener("popstate", onPopState);
   }, []);
-  useEffect(() => { fetch(`${API}/auth/status`).then((r) => r.json()).then((x) => x.authenticated ? load() : setAuthenticated(false)).catch(() => setAuthenticated(false)); }, []);
-  useEffect(() => { const refresh = () => !document.hidden && authenticated && load(); document.addEventListener("visibilitychange", refresh); return () => document.removeEventListener("visibilitychange", refresh); }, [authenticated]);
+  useEffect(() => { fetch(`${API}/auth/status`).then((r) => { if (!r.ok) throw new Error(`Request failed (${r.status})`); return r.json(); }).then((x) => x.authenticated ? load() : setAuthenticated(false)).catch(() => cachedAtStartup.current ? (setAuthenticated(true), setOnline(false)) : setAuthenticated(false)); }, []);
+  useEffect(() => {
+    const refresh = () => { if (!document.hidden && authenticated) load(); };
+    const reconnect = () => { setOnline(true); if (authenticated) load(); };
+    const disconnect = () => setOnline(false);
+    document.addEventListener("visibilitychange", refresh);
+    addEventListener("online", reconnect);
+    addEventListener("offline", disconnect);
+    return () => { document.removeEventListener("visibilitychange", refresh); removeEventListener("online", reconnect); removeEventListener("offline", disconnect); };
+  }, [authenticated]);
   useEffect(() => { const timer = setInterval(() => setCurrentDay(todayKey()), 60_000); return () => clearInterval(timer); }, []);
   useEffect(() => { if (authenticated && "Notification" in window && Notification.permission === "granted") enableNotifications().catch(() => {}); }, [authenticated]);
   useEffect(() => setCompletedOpen(false), [view]);
@@ -312,7 +364,6 @@ function App() {
   const counts = useMemo(() => Object.fromEntries([...views.map((x) => x.id), ...state.lists.map((x) => x.id)].map((id) => [id, state.tasks.filter((task) => !task.done && isTaskInView(task, id, currentDay)).length])), [state, currentDay]);
   const title = views.find((x) => x.id === view)?.label || state.lists.find((x) => x.id === view)?.name || "Tasks";
 
-  function replaceTask(updated) { setState((old) => ({ ...old, tasks: old.tasks.map((task) => task.id === updated.id ? updated : task) })); }
   async function enableNotifications() {
     if (!("serviceWorker" in navigator) || !("PushManager" in window) || !("Notification" in window)) throw new Error("Push notifications are not supported on this device.");
     const permission = Notification.permission === "granted" ? "granted" : await Notification.requestPermission();
@@ -335,26 +386,56 @@ function App() {
     setNotificationsReady(false);
   }
   async function patchTask(id, patch, localOnly = false) {
-    if (localOnly) { setState((old) => ({ ...old, tasks: old.tasks.map((task) => task.id === id ? { ...task, ...patch } : task) })); return; }
-    try {
-      const current = state.tasks.find((task) => task.id === id);
-      replaceTask(await request(`/tasks/${id}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(patch) }));
-      if (patch.done === true && current?.repeatRule) await load();
-    } catch (error) { fail(error); await load(); }
+    commitState((old) => ({ ...old, tasks: old.tasks.map((task) => task.id === id ? { ...task, ...patch, updatedAt: nowISO() } : task) }));
+    if (!localOnly && navigator.onLine) await load();
   }
   async function addTask(event) {
     event.preventDefault(); const title = addTitle.trim(); if (!title) return;
     const listId = ["today", "important", "planned", "all"].includes(view) ? "all" : view;
-    const body = { title, myDay: view === "today" ? currentDay : null, important: view === "important", dueDate: view === "planned" ? currentDay : null };
-    try { const task = await request(`/lists/${listId}/tasks`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }); setState((old) => ({ ...old, tasks: [...old.tasks, task] })); setAddTitle(""); } catch (error) { fail(error); }
+    const timestamp = nowISO();
+    const task = { id: makeId(), listId, title, done: false, myDay: view === "today" ? currentDay : null, important: view === "important", reminderAt: null, dueDate: view === "planned" ? currentDay : null, repeatRule: null, note: "", steps: [], createdAt: timestamp, updatedAt: timestamp };
+    commitState((old) => ({ ...old, tasks: [...old.tasks, task] }));
+    setAddTitle("");
+    if (navigator.onLine) await load();
   }
-  async function deleteTask(id) { try { await request(`/tasks/${id}`, { method: "DELETE" }); setState((old) => ({ ...old, tasks: old.tasks.filter((x) => x.id !== id) })); closeSelectedTask(); } catch (error) { fail(error); } }
-  async function addStep(taskId, title) { try { const step = await request(`/tasks/${taskId}/steps`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ title }) }); setState((old) => ({ ...old, tasks: old.tasks.map((task) => task.id === taskId ? { ...task, steps: [...(task.steps || []), step] } : task) })); } catch (error) { fail(error); } }
-  async function patchStep(id, patch) { try { const step = await request(`/steps/${id}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(patch) }); setState((old) => ({ ...old, tasks: old.tasks.map((task) => task.id === step.taskId ? { ...task, steps: task.steps.map((x) => x.id === id ? step : x) } : task) })); } catch (error) { fail(error); } }
-  async function deleteStep(id) { try { await request(`/steps/${id}`, { method: "DELETE" }); setState((old) => ({ ...old, tasks: old.tasks.map((task) => ({ ...task, steps: task.steps?.filter((x) => x.id !== id) })) })); } catch (error) { fail(error); } }
-  async function createList() { const name = newListName.trim(); if (!name) return; try { const list = await request("/lists", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name }) }); setState((old) => ({ ...old, lists: [...old.lists, list] })); history.replaceState({ ledger: true, view: list.id }, "", location.pathname); setView(list.id); setNewListName(""); setNewListOpen(false); } catch (error) { fail(error); } }
-  async function deleteList(list) { if (!confirm(`Delete “${list.name}” and its tasks?`)) return; try { await request(`/lists/${list.id}`, { method: "DELETE" }); setState((old) => ({ lists: old.lists.filter((x) => x.id !== list.id), tasks: old.tasks.filter((x) => x.listId !== list.id) })); if (view === list.id) { history.replaceState({ ledger: true, view: "today" }, "", location.pathname); setView("today"); } } catch (error) { fail(error); } }
-  async function logout() { try { await disableNotifications(); } catch (_error) {} await fetch(`${API}/auth/logout`, { method: "POST" }); history.replaceState({ ledger: true, view: "today" }, "", location.pathname); setView("today"); setSelectedId(null); setMobileOpen(false); setNewListOpen(false); setAuthenticated(false); }
+  async function deleteTask(id) {
+    const deletedAt = nowISO();
+    commitState((old) => ({ ...old, tasks: old.tasks.filter((x) => x.id !== id), deletedTasks: [...old.deletedTasks.filter((x) => x.id !== id), { id, deletedAt }] }));
+    closeSelectedTask();
+    if (navigator.onLine) await load();
+  }
+  async function addStep(taskId, title) {
+    const timestamp = nowISO();
+    const step = { id: makeId(), taskId, title: title.trim(), done: false, createdAt: timestamp, updatedAt: timestamp };
+    commitState((old) => ({ ...old, tasks: old.tasks.map((task) => task.id === taskId ? { ...task, updatedAt: timestamp, steps: [...(task.steps || []), step] } : task) }));
+    if (navigator.onLine) await load();
+  }
+  async function patchStep(id, patch) {
+    const timestamp = nowISO();
+    commitState((old) => ({ ...old, tasks: old.tasks.map((task) => task.steps?.some((step) => step.id === id) ? { ...task, updatedAt: timestamp, steps: task.steps.map((step) => step.id === id ? { ...step, ...patch, updatedAt: timestamp } : step) } : task) }));
+    if (navigator.onLine) await load();
+  }
+  async function deleteStep(id) {
+    const deletedAt = nowISO();
+    commitState((old) => ({ ...old, deletedSteps: [...old.deletedSteps.filter((x) => x.id !== id), { id, deletedAt }], tasks: old.tasks.map((task) => ({ ...task, steps: task.steps?.filter((step) => step.id !== id) })) }));
+    if (navigator.onLine) await load();
+  }
+  async function createList() {
+    const name = newListName.trim(); if (!name) return;
+    const timestamp = nowISO();
+    const list = { id: makeId(), name, createdAt: timestamp, updatedAt: timestamp };
+    commitState((old) => ({ ...old, lists: [...old.lists, list] }));
+    history.replaceState({ ledger: true, view: list.id }, "", location.pathname); setView(list.id); setNewListName(""); setNewListOpen(false);
+    if (navigator.onLine) await load();
+  }
+  async function deleteList(list) {
+    if (!confirm(`Delete “${list.name}” and its tasks?`)) return;
+    const deletedAt = nowISO();
+    commitState((old) => ({ ...old, lists: old.lists.filter((x) => x.id !== list.id), tasks: old.tasks.filter((x) => x.listId !== list.id), deletedLists: [...old.deletedLists.filter((x) => x.id !== list.id), { id: list.id, deletedAt }], deletedTasks: [...old.deletedTasks, ...old.tasks.filter((x) => x.listId === list.id).map((task) => ({ id: task.id, deletedAt }))] }));
+    if (view === list.id) { history.replaceState({ ledger: true, view: "today" }, "", location.pathname); setView("today"); }
+    if (navigator.onLine) await load();
+  }
+  async function logout() { try { await disableNotifications(); } catch (_error) {} await fetch(`${API}/auth/logout`, { method: "POST" }).catch(() => {}); commitState(emptyState(), false); removeCachedState(); history.replaceState({ ledger: true, view: "today" }, "", location.pathname); setView("today"); setSelectedId(null); setMobileOpen(false); setNewListOpen(false); setAuthenticated(false); }
   function navigateView(nextView) {
     const entry = { ledger: true, view: nextView };
     if (history.state?.layer === "sidebar") history.replaceState(entry, "", location.pathname);
@@ -365,6 +446,18 @@ function App() {
   function closeSelectedTask() { if (history.state?.layer === "task") history.back(); else setSelectedId(null); }
   function openMobileNav() { if (!mobileOpen) history.pushState({ ledger: true, view, layer: "sidebar" }, "", location.pathname); setMobileOpen(true); }
   function closeMobileNav() { if (history.state?.layer === "sidebar") history.back(); else setMobileOpen(false); }
+  function startMobileSwipe(event) {
+    if (innerWidth > 800 || mobileOpen || selectedTask || event.pointerType === "mouse") return;
+    swipeStart.current = { x: event.clientX, y: event.clientY, id: event.pointerId };
+  }
+  function finishMobileSwipe(event) {
+    const start = swipeStart.current;
+    swipeStart.current = null;
+    if (!start || start.id !== event.pointerId) return;
+    const dx = event.clientX - start.x;
+    const dy = Math.abs(event.clientY - start.y);
+    if (dy < 70 && (dx < -72 || (start.x < 36 && dx > 72))) openMobileNav();
+  }
   function openNewList() { history.pushState({ ledger: true, view, layer: "new-list" }, "", location.pathname); setNewListOpen(true); }
   function closeNewList() { if (history.state?.layer === "new-list") history.back(); else setNewListOpen(false); }
   function startSidebarResize(event) {
@@ -394,8 +487,8 @@ function App() {
   if (!authenticated) return <Login onLogin={load} />;
   return <div className={`appShell ${selectedTask ? "detailsOpen" : ""}`} style={{ "--sidebar-width": `${sidebarWidth}px` }}>
     <Sidebar view={view} onSelectView={navigateView} lists={state.lists} counts={counts} onNewList={openNewList} onDeleteList={deleteList} mobileOpen={mobileOpen} closeMobile={closeMobileNav} onLogout={logout} onResizeStart={startSidebarResize} />
-    <main className="taskArea">
-      <header className="topbar"><IconButton className="menuButton" onClick={openMobileNav}><Menu /></IconButton><div><h1>{title}</h1><span>{dayjs().format("dddd, MMMM D")}</span></div></header>
+    <main className="taskArea" onPointerDown={startMobileSwipe} onPointerUp={finishMobileSwipe} onPointerCancel={() => { swipeStart.current = null; }}>
+      <header className="topbar"><IconButton className="menuButton" onClick={openMobileNav}><Menu /></IconButton><div><h1>{title}</h1><span>{dayjs().format("dddd, MMMM D")}</span>{(!online || syncPending) && <span className={`syncStatus ${online ? "syncing" : "offline"}`}>{online ? "Syncing changes…" : "Offline · changes will sync when connected"}</span>}</div></header>
       <div className="taskScroller">
         <form className="quickAdd" onSubmit={addTask}><Add /><input aria-label={`Add a task to ${title}`} placeholder="Add a task" value={addTitle} onChange={(e) => setAddTitle(e.target.value)} /><button type="submit">Add</button></form>
         <section className="taskList">

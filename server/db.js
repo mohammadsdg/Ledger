@@ -38,6 +38,7 @@ async function getState(conn = pool) {
     })),
     deletedLists: deleted.filter((x) => x.entityType === "list").map((x) => ({ id: x.id, deletedAt: toISO(x.deletedAt) })),
     deletedTasks: deleted.filter((x) => x.entityType === "task").map((x) => ({ id: x.id, deletedAt: toISO(x.deletedAt) })),
+    deletedSteps: deleted.filter((x) => x.entityType === "step").map((x) => ({ id: x.id, deletedAt: toISO(x.deletedAt) })),
   };
 }
 

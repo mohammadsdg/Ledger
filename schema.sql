@@ -127,11 +127,13 @@ CREATE TABLE IF NOT EXISTS steps (
 ) ENGINE=InnoDB;
 
 CREATE TABLE IF NOT EXISTS deletions (
-  entity_type ENUM('list','task') NOT NULL,
+  entity_type ENUM('list','task','step') NOT NULL,
   entity_id VARCHAR(36) NOT NULL,
   deleted_at BIGINT UNSIGNED NOT NULL,
   PRIMARY KEY (entity_type,entity_id), KEY deletions_deleted_at (deleted_at)
 ) ENGINE=InnoDB;
+
+ALTER TABLE deletions MODIFY COLUMN entity_type ENUM('list','task','step') NOT NULL;
 
 CREATE TABLE IF NOT EXISTS push_subscriptions (
   id CHAR(64) NOT NULL,

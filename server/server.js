@@ -151,7 +151,7 @@ async function deletionTime(conn, type, id) {
 async function applyDeletion(conn, type, item) {
   if (!item?.id) return;
   const time = db.toMillis(item.deletedAt);
-  const table = type === "list" ? "lists" : "tasks";
+  const table = type === "list" ? "lists" : type === "step" ? "steps" : "tasks";
   const [rows] = await conn.execute(`SELECT updated_at updatedAt FROM ${table} WHERE id=? FOR UPDATE`, [item.id]);
   if (!rows.length || Number(rows[0].updatedAt) <= time) {
     await conn.execute(`DELETE FROM ${table} WHERE id=?`, [item.id]);
@@ -274,8 +274,10 @@ app.delete("/api/steps/:id", route(async (req, res) => {
   const removed = await db.transaction(async (conn) => {
     const [rows] = await conn.execute("SELECT task_id taskId FROM steps WHERE id=?", [req.params.id]);
     if (!rows.length) return false;
+    const now = Date.now();
     await conn.execute("DELETE FROM steps WHERE id=?", [req.params.id]);
-    await conn.execute("UPDATE tasks SET updated_at=? WHERE id=?", [Date.now(), rows[0].taskId]);
+    await putDeletion(conn, "step", req.params.id, now);
+    await conn.execute("UPDATE tasks SET updated_at=? WHERE id=?", [now, rows[0].taskId]);
     return true;
   });
   if (!removed) return res.status(404).json({ error: "Step not found" });
@@ -295,6 +297,7 @@ app.delete("/api/tasks/:id", route(async (req, res) => {
 app.post("/api/sync", route(async (req, res) => {
   const input = req.body || {};
   const state = await db.transaction(async (conn) => {
+    for (const x of input.deletedSteps || []) await applyDeletion(conn, "step", x);
     for (const x of input.deletedTasks || []) await applyDeletion(conn, "task", x);
     for (const x of input.deletedLists || []) await applyDeletion(conn, "list", x);
     for (const list of input.lists || []) {
@@ -310,9 +313,26 @@ app.post("/api/sync", route(async (req, res) => {
       if (await deletionTime(conn, "task", task.id) >= updated) continue;
       const [lists] = await conn.execute("SELECT id FROM lists WHERE id=?", [task.listId]);
       if (!lists.length) continue;
+      const [existing] = await conn.execute("SELECT done,updated_at updatedAt FROM tasks WHERE id=? FOR UPDATE", [task.id]);
       const myDay = /^\d{4}-\d{2}-\d{2}$/.test(task.myDay || "") ? task.myDay : (task.today ? new Date().toISOString().slice(0, 10) : null);
-      await conn.execute("INSERT INTO tasks(id,list_id,title,done,today,my_day,important,reminder_at,due_date,repeat_rule,note,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?) ON DUPLICATE KEY UPDATE list_id=IF(VALUES(updated_at)>updated_at,VALUES(list_id),list_id),title=IF(VALUES(updated_at)>updated_at,VALUES(title),title),done=IF(VALUES(updated_at)>updated_at,VALUES(done),done),today=IF(VALUES(updated_at)>updated_at,VALUES(today),today),my_day=IF(VALUES(updated_at)>updated_at,VALUES(my_day),my_day),updated_at=GREATEST(updated_at,VALUES(updated_at))", [task.id, task.listId, String(task.title).trim(), !!task.done, !!myDay, myDay, !!task.important, task.reminderAt ? db.toMillis(task.reminderAt) : null, task.dueDate || null, task.repeatRule || null, task.note || "", db.toMillis(task.createdAt, updated), updated]);
+      await conn.execute("INSERT INTO tasks(id,list_id,title,done,today,my_day,important,reminder_at,due_date,repeat_rule,note,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?) ON DUPLICATE KEY UPDATE list_id=IF(VALUES(updated_at)>updated_at,VALUES(list_id),list_id),title=IF(VALUES(updated_at)>updated_at,VALUES(title),title),done=IF(VALUES(updated_at)>updated_at,VALUES(done),done),today=IF(VALUES(updated_at)>updated_at,VALUES(today),today),my_day=IF(VALUES(updated_at)>updated_at,VALUES(my_day),my_day),important=IF(VALUES(updated_at)>updated_at,VALUES(important),important),reminder_sent_at=IF(VALUES(updated_at)>updated_at AND NOT (VALUES(reminder_at)<=>reminder_at),NULL,reminder_sent_at),reminder_at=IF(VALUES(updated_at)>updated_at,VALUES(reminder_at),reminder_at),due_date=IF(VALUES(updated_at)>updated_at,VALUES(due_date),due_date),repeat_rule=IF(VALUES(updated_at)>updated_at,VALUES(repeat_rule),repeat_rule),note=IF(VALUES(updated_at)>updated_at,VALUES(note),note),updated_at=GREATEST(updated_at,VALUES(updated_at))", [task.id, task.listId, String(task.title).trim(), !!task.done, !!myDay, myDay, !!task.important, task.reminderAt ? db.toMillis(task.reminderAt) : null, task.dueDate || null, task.repeatRule || null, task.note || "", db.toMillis(task.createdAt, updated), updated]);
       await conn.execute("DELETE FROM deletions WHERE entity_type='task' AND entity_id=? AND deleted_at<?", [task.id, updated]);
+      if (existing.length && !existing[0].done && task.done && task.repeatRule && updated > Number(existing[0].updatedAt)) {
+        const nextId = crypto.randomUUID(), now = Date.now();
+        await conn.execute("INSERT INTO tasks(id,list_id,title,done,today,my_day,important,reminder_at,due_date,repeat_rule,note,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)", [nextId, task.listId, String(task.title).trim(), false, false, null, !!task.important, null, nextOccurrence(task.dueDate, task.repeatRule), task.repeatRule, task.note || "", now, now]);
+        for (const step of task.steps || []) await conn.execute("INSERT INTO steps(id,task_id,title,done,created_at,updated_at) VALUES(?,?,?,?,?,?)", [crypto.randomUUID(), nextId, String(step.title || "").trim().slice(0, 500), false, now, now]);
+      }
+    }
+    for (const task of input.tasks || []) {
+      for (const step of task.steps || []) {
+        if (!step?.id || !task.id || !String(step.title || "").trim()) continue;
+        const updated = db.toMillis(step.updatedAt || step.createdAt);
+        if (await deletionTime(conn, "step", step.id) >= updated) continue;
+        const [tasks] = await conn.execute("SELECT id FROM tasks WHERE id=?", [task.id]);
+        if (!tasks.length) continue;
+        await conn.execute("INSERT INTO steps(id,task_id,title,done,created_at,updated_at) VALUES(?,?,?,?,?,?) ON DUPLICATE KEY UPDATE task_id=IF(VALUES(updated_at)>updated_at,VALUES(task_id),task_id),title=IF(VALUES(updated_at)>updated_at,VALUES(title),title),done=IF(VALUES(updated_at)>updated_at,VALUES(done),done),updated_at=GREATEST(updated_at,VALUES(updated_at))", [step.id, task.id, String(step.title).trim().slice(0, 500), !!step.done, db.toMillis(step.createdAt, updated), updated]);
+        await conn.execute("DELETE FROM deletions WHERE entity_type='step' AND entity_id=? AND deleted_at<?", [step.id, updated]);
+      }
     }
     return db.getState(conn);
   });

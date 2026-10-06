@@ -101,9 +101,13 @@ Put Ledger behind HTTPS, open it in your phone browser, and choose **Install app
 
 On the first reminder, Ledger asks for notification permission and registers that device. Notification keys are generated automatically and kept in the MySQL `app_settings` table, so they survive restarts. The Node server needs to stay running to deliver reminders.
 
+The installed Android app keeps its most recent data locally. You can add, edit, complete, and delete tasks or steps without a connection; Ledger shows an offline status and merges those changes with the server automatically when connectivity returns. In the main task view, swipe left to open navigation (a right swipe from the left edge works too).
+
 If you prefer to manage Web Push keys yourself, set `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`, and `VAPID_SUBJECT` in the environment.
 
 ## CLI
+
+The complete command reference, setup options, matching rules, offline behavior, and troubleshooting notes are in the [CLI usage guide](cli/README.md). Run `todo --help` for the same quick reference in your terminal.
 
 The CLI keeps its local cache in `~/.todo-cli/cache.json`, so capturing and editing tasks does not depend on a network connection.
 
