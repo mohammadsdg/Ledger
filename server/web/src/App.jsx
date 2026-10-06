@@ -114,7 +114,7 @@ function DetailPane({ task, notificationsReady, onEnableNotifications, onClose, 
       <IconButton onClick={() => onPatch(task.id, { important: !task.important })}>{task.important ? <Star /> : <StarBorder />}</IconButton>
     </section>
     <section className="detailCard stepsCard">
-      {task.steps?.map((step) => <div className="stepRow" key={step.id}><Checkbox size="small" checked={step.done} onChange={() => onPatchStep(step.id, { done: !step.done })} /><span className={step.done ? "done" : ""}>{step.title}</span><IconButton size="small" onClick={() => onDeleteStep(step.id)}><Close fontSize="small" /></IconButton></div>)}
+      {task.steps?.map((step) => <div className="stepRow" key={step.id}><Checkbox size="small" checked={step.done} onChange={() => onPatchStep(step.id, { done: !step.done })} /><span className={`stepTitle ${step.done ? "done" : ""}`}>{step.title}</span><IconButton size="small" onClick={() => onDeleteStep(step.id)}><Close fontSize="small" /></IconButton></div>)}
       <form className="addStep" onSubmit={addStep}><Add /><input value={stepTitle} onChange={(e) => setStepTitle(e.target.value)} placeholder="Add step" /></form>
     </section>
     <section className="detailCard actionCard">
