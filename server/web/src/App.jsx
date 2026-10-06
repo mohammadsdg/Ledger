@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import dayjs from "dayjs";
 import moment from "moment-jalaali";
 import {
-  Add, CalendarMonth, Check, ChevronLeft, Close, DeleteOutline, EventRepeat,
+  Add, CalendarMonth, Check, ChevronLeft, ChevronRight, Close, DeleteOutline, EventRepeat,
   Logout, Menu, NotificationsNone, RadioButtonUnchecked, Star, StarBorder,
   Sunny, TaskAlt, WbSunnyOutlined,
 } from "@mui/icons-material";
@@ -10,7 +10,7 @@ import {
   Alert, Button, Checkbox, CircularProgress, Dialog, DialogActions, DialogContent,
   DialogTitle, IconButton, MenuItem, Select, Snackbar, TextField, Tooltip,
 } from "@mui/material";
-import { DatePicker, DateTimePicker } from "@mui/x-date-pickers";
+import { DateCalendar, DatePicker, TimeClock } from "@mui/x-date-pickers";
 import { isTaskInView } from "./taskViews.mjs";
 
 const API = "/api";
@@ -94,6 +94,86 @@ function TaskRow({ task, listName, currentDay, onOpen, onToggleDone, onToggleImp
   </article>;
 }
 
+function ReminderControl({ taskId, value, notificationsReady, onSave }) {
+  const [open, setOpen] = useState(false);
+  const [step, setStep] = useState("date");
+  const [date, setDate] = useState(moment());
+  const [time, setTime] = useState(moment().add(1, "hour").startOf("hour"));
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    const syncWithHistory = (event) => {
+      const isThisReminder = event.state?.layer === "reminder" && event.state?.taskId === taskId;
+      setOpen(isThisReminder);
+      if (!isThisReminder) setStep("date");
+    };
+    addEventListener("popstate", syncWithHistory);
+    return () => removeEventListener("popstate", syncWithHistory);
+  }, [taskId]);
+
+  function openReminder() {
+    const saved = value ? moment(value) : null;
+    const nextTime = saved || moment().add(1, "hour").startOf("hour");
+    setDate(saved || moment());
+    setTime(nextTime);
+    setStep("date");
+    setError("");
+    history.pushState({ ...history.state, ledger: true, layer: "reminder", taskId }, "");
+    setOpen(true);
+  }
+
+  function closeReminder() {
+    if (history.state?.layer === "reminder" && history.state?.taskId === taskId) history.back();
+    else setOpen(false);
+  }
+
+  async function saveReminder() {
+    const reminder = date.clone().hour(time.hour()).minute(time.minute()).second(0).millisecond(0);
+    if (!reminder.isAfter(moment())) {
+      setError("Choose a time in the future.");
+      return;
+    }
+    if (await onSave(reminder)) closeReminder();
+  }
+
+  async function removeReminder() {
+    if (await onSave(null)) closeReminder();
+  }
+
+  return <>
+    <button type="button" className={`reminderRow ${value ? "hasValue" : ""}`} onClick={openReminder}>
+      <span className={`reminderIcon ${notificationsReady ? "ready" : ""}`}><NotificationsNone /></span>
+      <span className="reminderCopy">
+        <strong>Remind me</strong>
+        <small>{value ? moment(value).format("jD jMMMM, HH:mm") : "Choose a date and time"}</small>
+      </span>
+      <ChevronRight className="reminderChevron" />
+    </button>
+    <Dialog className="reminderDialog" open={open} onClose={closeReminder} fullWidth maxWidth="xs">
+      <DialogTitle>Set a reminder</DialogTitle>
+      <DialogContent dividers>
+        <div className="reminderSteps" aria-label="Reminder setup progress">
+          <span className={step === "date" ? "active" : "done"}><b>1</b> Date</span>
+          <span className={step === "time" ? "active" : ""}><b>2</b> Time</span>
+        </div>
+        {step === "date" ? <div className="reminderPicker">
+          <DateCalendar value={date} onChange={(next) => next && setDate(next)} disablePast sx={{ width: "100%", maxWidth: 320 }} />
+        </div> : <>
+          <div className="reminderDateSummary"><CalendarMonth /><span>{date.format("dddd, jD jMMMM jYYYY")}</span><Button size="small" onClick={() => setStep("date")}>Change</Button></div>
+          <div className="reminderPicker"><TimeClock value={time} onChange={(next) => next && setTime(next)} views={["hours", "minutes"]} minutesStep={5} sx={{ width: "100%", maxWidth: 320 }} /></div>
+        </>}
+        {error && <p className="reminderError">{error}</p>}
+      </DialogContent>
+      <DialogActions className="reminderActions">
+        {value && <Button color="error" onClick={removeReminder}>Remove</Button>}
+        <span />
+        <Button onClick={step === "date" ? closeReminder : () => { setError(""); setStep("date"); }}>{step === "date" ? "Cancel" : "Back"}</Button>
+        <Button variant="contained" onClick={() => { setError(""); step === "date" ? setStep("time") : saveReminder(); }}>{step === "date" ? "Choose time" : "Save reminder"}</Button>
+      </DialogActions>
+    </Dialog>
+  </>;
+}
+
 function DetailPane({ task, notificationsReady, onEnableNotifications, onClose, onPatch, onDelete, onAddStep, onPatchStep, onDeleteStep }) {
   const [stepTitle, setStepTitle] = useState("");
   const [title, setTitle] = useState(task?.title || "");
@@ -104,8 +184,9 @@ function DetailPane({ task, notificationsReady, onEnableNotifications, onClose, 
   const inMyDay = task.myDay === todayKey();
   async function addStep(event) { event.preventDefault(); if (!stepTitle.trim()) return; await onAddStep(task.id, stepTitle); setStepTitle(""); }
   async function setReminder(value) {
-    if (value?.isValid() && !(await onEnableNotifications())) return;
-    onPatch(task.id, { reminderAt: value?.isValid() ? value.toISOString() : null });
+    if (value?.isValid() && !(await onEnableNotifications())) return false;
+    await onPatch(task.id, { reminderAt: value?.isValid() ? value.toISOString() : null });
+    return true;
   }
   return <aside className="detailPane" aria-label="Task details">
     <header className="detailHeader"><IconButton onClick={onClose}><ChevronLeft /></IconButton><span>Task details</span><IconButton onClick={onClose}><Close /></IconButton></header>
@@ -122,7 +203,7 @@ function DetailPane({ task, notificationsReady, onEnableNotifications, onClose, 
       <button className={inMyDay ? "selected" : ""} onClick={() => onPatch(task.id, { myDay: inMyDay ? null : todayKey() })}><Sunny /><span>{inMyDay ? "Added to My Day" : "Add to My Day"}</span>{inMyDay && <Check />}</button>
     </section>
     <section className="detailCard scheduleCard">
-      <div className="pickerRow"><NotificationsNone className={notificationsReady ? "notificationOn" : ""} /><DateTimePicker label="Remind me" value={task.reminderAt ? moment(task.reminderAt) : null} onAccept={setReminder} slotProps={{ field: { clearable: true, onClear: () => setReminder(null) } }} /></div>
+      <ReminderControl taskId={task.id} value={task.reminderAt} notificationsReady={notificationsReady} onSave={setReminder} />
       <div className="pickerRow"><CalendarMonth /><DatePicker label="Due date" value={task.dueDate ? moment(task.dueDate, "YYYY-MM-DD") : null} onAccept={(value) => onPatch(task.id, { dueDate: value?.isValid() ? value.format("YYYY-MM-DD") : null })} slotProps={{ field: { clearable: true, onClear: () => onPatch(task.id, { dueDate: null }) } }} /></div>
       <div className="pickerRow"><EventRepeat /><Select displayEmpty value={task.repeatRule || ""} onChange={(e) => onPatch(task.id, { repeatRule: e.target.value || null })}>
         <MenuItem value="">Does not repeat</MenuItem><MenuItem value="daily">Daily</MenuItem><MenuItem value="weekdays">Weekdays</MenuItem><MenuItem value="weekly">Weekly</MenuItem><MenuItem value="monthly">Monthly</MenuItem><MenuItem value="yearly">Yearly</MenuItem>
@@ -160,7 +241,7 @@ function App() {
       const entry = event.state;
       if (!entry?.ledger) return;
       setView(entry.view || "today");
-      setSelectedId(entry.layer === "task" ? entry.taskId : null);
+      setSelectedId(entry.layer === "task" || entry.layer === "reminder" ? entry.taskId : null);
       setMobileOpen(entry.layer === "sidebar");
       setNewListOpen(entry.layer === "new-list");
     };
