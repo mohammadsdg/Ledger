@@ -10,7 +10,7 @@ import {
   Alert, Button, Checkbox, CircularProgress, Dialog, DialogActions, DialogContent,
   DialogTitle, IconButton, MenuItem, Select, Snackbar, TextField, Tooltip,
 } from "@mui/material";
-import { DateCalendar, DatePicker, TimeClock } from "@mui/x-date-pickers";
+import { DateCalendar, TimeClock } from "@mui/x-date-pickers";
 import { isTaskInView } from "./taskViews.mjs";
 
 const API = "/api";
@@ -174,6 +174,62 @@ function ReminderControl({ taskId, value, notificationsReady, onSave }) {
   </>;
 }
 
+function DueDateControl({ taskId, value, onSave }) {
+  const [open, setOpen] = useState(false);
+  const [date, setDate] = useState(moment());
+
+  useEffect(() => {
+    const syncWithHistory = (event) => setOpen(event.state?.layer === "due-date" && event.state?.taskId === taskId);
+    addEventListener("popstate", syncWithHistory);
+    return () => removeEventListener("popstate", syncWithHistory);
+  }, [taskId]);
+
+  function openDueDate() {
+    setDate(value ? moment(value, "YYYY-MM-DD") : moment());
+    history.pushState({ ...history.state, ledger: true, layer: "due-date", taskId }, "");
+    setOpen(true);
+  }
+
+  function closeDueDate() {
+    if (history.state?.layer === "due-date" && history.state?.taskId === taskId) history.back();
+    else setOpen(false);
+  }
+
+  async function saveDueDate() {
+    await onSave(date.format("YYYY-MM-DD"));
+    closeDueDate();
+  }
+
+  async function removeDueDate() {
+    await onSave(null);
+    closeDueDate();
+  }
+
+  return <>
+    <button type="button" className={`reminderRow dueDateRow ${value ? "hasValue" : ""}`} onClick={openDueDate}>
+      <span className="reminderIcon"><CalendarMonth /></span>
+      <span className="reminderCopy">
+        <strong>Due date</strong>
+        <small>{value ? moment(value, "YYYY-MM-DD").format("dddd, jD jMMMM jYYYY") : "Choose a date"}</small>
+      </span>
+      <ChevronRight className="reminderChevron" />
+    </button>
+    <Dialog className="reminderDialog dueDateDialog" open={open} onClose={closeDueDate} fullWidth maxWidth="xs">
+      <DialogTitle>Set a due date</DialogTitle>
+      <DialogContent dividers>
+        <div className="dueDateHeading"><CalendarMonth /><span>{date.format("dddd, jD jMMMM jYYYY")}</span></div>
+        <div className="reminderPicker dueDatePicker"><DateCalendar value={date} onChange={(next) => next && setDate(next)} sx={{ width: "100%", maxWidth: 320 }} /></div>
+      </DialogContent>
+      <DialogActions className="reminderActions">
+        {value && <Button color="error" onClick={removeDueDate}>Remove</Button>}
+        <span />
+        <Button onClick={closeDueDate}>Cancel</Button>
+        <Button variant="contained" onClick={saveDueDate}>Save date</Button>
+      </DialogActions>
+    </Dialog>
+  </>;
+}
+
 function DetailPane({ task, notificationsReady, onEnableNotifications, onClose, onPatch, onDelete, onAddStep, onPatchStep, onDeleteStep }) {
   const [stepTitle, setStepTitle] = useState("");
   const [title, setTitle] = useState(task?.title || "");
@@ -204,7 +260,7 @@ function DetailPane({ task, notificationsReady, onEnableNotifications, onClose, 
     </section>
     <section className="detailCard scheduleCard">
       <ReminderControl taskId={task.id} value={task.reminderAt} notificationsReady={notificationsReady} onSave={setReminder} />
-      <div className="pickerRow"><CalendarMonth /><DatePicker label="Due date" value={task.dueDate ? moment(task.dueDate, "YYYY-MM-DD") : null} onAccept={(value) => onPatch(task.id, { dueDate: value?.isValid() ? value.format("YYYY-MM-DD") : null })} slotProps={{ field: { clearable: true, onClear: () => onPatch(task.id, { dueDate: null }) } }} /></div>
+      <DueDateControl taskId={task.id} value={task.dueDate} onSave={(dueDate) => onPatch(task.id, { dueDate })} />
       <div className="pickerRow"><EventRepeat /><Select displayEmpty value={task.repeatRule || ""} onChange={(e) => onPatch(task.id, { repeatRule: e.target.value || null })}>
         <MenuItem value="">Does not repeat</MenuItem><MenuItem value="daily">Daily</MenuItem><MenuItem value="weekdays">Weekdays</MenuItem><MenuItem value="weekly">Weekly</MenuItem><MenuItem value="monthly">Monthly</MenuItem><MenuItem value="yearly">Yearly</MenuItem>
       </Select></div>
@@ -241,7 +297,7 @@ function App() {
       const entry = event.state;
       if (!entry?.ledger) return;
       setView(entry.view || "today");
-      setSelectedId(entry.layer === "task" || entry.layer === "reminder" ? entry.taskId : null);
+      setSelectedId(["task", "reminder", "due-date"].includes(entry.layer) ? entry.taskId : null);
       setMobileOpen(entry.layer === "sidebar");
       setNewListOpen(entry.layer === "new-list");
     };

@@ -78,6 +78,7 @@ nav { display: grid; gap: 3px; }
 .reminderCopy small { overflow: hidden; color: var(--muted); font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
 .reminderRow.hasValue .reminderCopy small { color: var(--accent); }
 .reminderChevron { color: #6f756f; font-size: 19px !important; }
+.dueDateRow { min-height: 68px; }
 .pickerRow { min-height: 61px; display: grid; grid-template-columns: 29px minmax(0,1fr); align-items: center; gap: 8px; padding: 7px 13px; border-bottom: 1px solid var(--line); color: var(--muted); }.pickerRow:last-child { border: 0; }.pickerRow > .MuiFormControl-root, .pickerRow > .MuiInputBase-root { width: 100%; }.pickerRow .MuiOutlinedInput-notchedOutline { border-color: transparent !important; }.pickerRow .MuiInputBase-root:hover { background: rgba(255,255,255,.025); }
 .pickerRow .notificationOn { color: var(--mint); filter: drop-shadow(0 0 7px rgba(101,214,173,.4)); }
 .reminderDialog .MuiDialog-paper { border-radius: 18px; background: #1b1f22; background-image: none; overflow: hidden; }
@@ -93,6 +94,9 @@ nav { display: grid; gap: 3px; }
 .reminderDateSummary { min-height: 46px; display: flex; align-items: center; gap: 9px; padding: 4px 4px 4px 10px; border: 1px solid var(--line); border-radius: 10px; color: var(--accent); font-size: 13px; }
 .reminderDateSummary > svg { font-size: 19px; }
 .reminderDateSummary > span { min-width: 0; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dueDateHeading { min-height: 44px; display: flex; align-items: center; justify-content: center; gap: 8px; margin-bottom: 2px; color: var(--accent); font-size: 13px; }
+.dueDateHeading svg { font-size: 19px; }
+.dueDatePicker { min-height: 306px; }
 .reminderError { margin: 4px 0 6px; color: #ef9a9a; font-size: 12px; text-align: center; }
 .reminderActions { padding: 11px 14px 13px !important; }
 .reminderActions > span { flex: 1; }
