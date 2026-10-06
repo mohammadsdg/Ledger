@@ -45,6 +45,44 @@ body {
   transition: background 0.15s ease, color 0.15s ease;
 }
 
+.login-screen {
+  min-height: 100vh;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+}
+
+.login-card {
+  width: min(100%, 360px);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  padding: 34px;
+  box-shadow: 0 18px 60px rgba(0, 0, 0, 0.18);
+}
+
+.login-card .brand-mark { font-size: 32px; }
+.login-card h1 { font-family: var(--serif); margin: 4px 0; }
+.login-card p { color: var(--muted); margin: 0 0 24px; }
+.login-card label { display: block; font-size: 13px; margin-bottom: 7px; }
+.login-card input {
+  width: 100%; border: 1px solid var(--border); background: var(--bg); border-radius: 8px;
+  padding: 11px 12px; font-size: 16px; margin-bottom: 12px;
+}
+.login-card button {
+  width: 100%; border: 0; border-radius: 8px; padding: 11px; cursor: pointer;
+  background: var(--accent); color: #0d120f; font-weight: 700;
+}
+.login-card .form-error { color: var(--danger); min-height: 1.5em; margin: 12px 0 0; }
+
+.toast {
+  position: fixed; right: 20px; bottom: 20px; z-index: 50; max-width: 360px;
+  padding: 11px 14px; border-radius: 8px; color: #fff; background: var(--danger);
+  box-shadow: 0 8px 30px rgba(0,0,0,.25);
+}
+
+.is-busy { opacity: .55; pointer-events: none; }
+
 button, input, select {
   font-family: inherit;
   color: inherit;

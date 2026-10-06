@@ -8,7 +8,19 @@
 </head>
 <body>
 
-<div class="app">
+<section id="loginScreen" class="login-screen">
+  <form id="loginForm" class="login-card">
+    <span class="brand-mark">§</span>
+    <h1>Ledger</h1>
+    <p>Your self-hosted task list.</p>
+    <label for="passwordInput">Password</label>
+    <input id="passwordInput" type="password" autocomplete="current-password" required autofocus />
+    <button type="submit">Enter</button>
+    <p id="loginError" class="form-error" role="alert"></p>
+  </form>
+</section>
+
+<div id="app" class="app hidden">
 
   <div class="topbar">
     <button id="menuToggle" class="menu-toggle" aria-label="Open menu">☰</button>
@@ -23,6 +35,7 @@
       <span class="brand-mark">§</span>
       <span class="brand-name">Ledger</span>
       <button id="themeToggleDesktop" class="icon-btn theme-toggle-desktop" title="Toggle theme">☾</button>
+      <button id="logoutBtn" class="icon-btn" title="Log out">↪</button>
     </div>
 
     <nav class="views">
@@ -69,6 +82,8 @@
   </main>
 
 </div>
+
+<div id="toast" class="toast hidden" role="status"></div>
 
 <script src="app.js"></script>
 </body>

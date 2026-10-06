@@ -5,9 +5,12 @@
   "main": "server.js",
   "type": "commonjs",
   "scripts": {
-    "start": "node server.js"
+    "start": "node server.js",
+    "check": "node --check server.js && node --check db.js && node --check public/app.js"
   },
   "dependencies": {
-    "express": "^4.19.2"
+    "dotenv": "^17.2.3",
+    "express": "^4.21.2",
+    "mysql2": "^3.15.3"
   }
 }

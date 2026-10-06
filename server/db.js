@@ -1,15 +1,47 @@
-const fs = require("fs");
-const path = require("path");
+const mysql = require("mysql2/promise");
 
-const DB_PATH = path.join(__dirname, "data", "db.json");
+const pool = mysql.createPool({
+  host: process.env.DB_HOST || "127.0.0.1",
+  port: Number(process.env.DB_PORT || 3306),
+  user: process.env.DB_USER || "root",
+  password: process.env.DB_PASSWORD || "",
+  database: process.env.DB_NAME || "ledger",
+  waitForConnections: true,
+  connectionLimit: Number(process.env.DB_POOL_SIZE || 10),
+  charset: "utf8mb4",
+});
 
-function read() {
-  const raw = fs.readFileSync(DB_PATH, "utf-8");
-  return JSON.parse(raw);
+const toISO = (value) => new Date(Number(value)).toISOString();
+function toMillis(value, fallback = Date.now()) {
+  const millis = new Date(value || fallback).getTime();
+  return Number.isFinite(millis) ? millis : fallback;
 }
 
-function write(db) {
-  fs.writeFileSync(DB_PATH, JSON.stringify(db, null, 2), "utf-8");
+async function getState(conn = pool) {
+  const [lists] = await conn.query("SELECT id,name,created_at createdAt,updated_at updatedAt FROM lists ORDER BY created_at,id");
+  const [tasks] = await conn.query("SELECT id,list_id listId,title,done,today,created_at createdAt,updated_at updatedAt FROM tasks ORDER BY created_at,id");
+  const [deleted] = await conn.query("SELECT entity_type entityType,entity_id id,deleted_at deletedAt FROM deletions");
+  return {
+    lists: lists.map((x) => ({ ...x, createdAt: toISO(x.createdAt), updatedAt: toISO(x.updatedAt) })),
+    tasks: tasks.map((x) => ({ ...x, done: !!x.done, today: !!x.today, createdAt: toISO(x.createdAt), updatedAt: toISO(x.updatedAt) })),
+    deletedLists: deleted.filter((x) => x.entityType === "list").map((x) => ({ id: x.id, deletedAt: toISO(x.deletedAt) })),
+    deletedTasks: deleted.filter((x) => x.entityType === "task").map((x) => ({ id: x.id, deletedAt: toISO(x.deletedAt) })),
+  };
 }
 
-module.exports = { read, write };
+async function transaction(work) {
+  const conn = await pool.getConnection();
+  try {
+    await conn.beginTransaction();
+    const result = await work(conn);
+    await conn.commit();
+    return result;
+  } catch (error) {
+    await conn.rollback();
+    throw error;
+  } finally {
+    conn.release();
+  }
+}
+
+module.exports = { pool, getState, transaction, toMillis, toISO };

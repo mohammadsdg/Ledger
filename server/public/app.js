@@ -2,6 +2,7 @@ const API = "/api";
 
 let state = { lists: [], tasks: [] };
 let currentView = "today"; // "today" | "all" | a list id
+let toastTimer;
 
 const listNavEl = document.getElementById("listNav");
 const taskListEl = document.getElementById("taskList");
@@ -19,6 +20,41 @@ const cancelListBtn = document.getElementById("cancelListBtn");
 const sidebarEl = document.getElementById("sidebar");
 const overlayEl = document.getElementById("overlay");
 const menuToggleBtn = document.getElementById("menuToggle");
+const appEl = document.getElementById("app");
+const loginScreen = document.getElementById("loginScreen");
+const loginForm = document.getElementById("loginForm");
+const passwordInput = document.getElementById("passwordInput");
+const loginError = document.getElementById("loginError");
+const toastEl = document.getElementById("toast");
+
+function showError(message) {
+  clearTimeout(toastTimer);
+  toastEl.textContent = message;
+  toastEl.classList.remove("hidden");
+  toastTimer = setTimeout(() => toastEl.classList.add("hidden"), 4500);
+}
+
+async function request(url, options = {}) {
+  const res = await fetch(url, options);
+  if (res.status === 401) {
+    appEl.classList.add("hidden");
+    loginScreen.classList.remove("hidden");
+    passwordInput.focus();
+    throw new Error("Please sign in again.");
+  }
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error(body.error || `Request failed (${res.status})`);
+  }
+  return res.status === 204 ? null : res.json();
+}
+
+async function action(element, work) {
+  element?.classList.add("is-busy");
+  try { return await work(); }
+  catch (error) { showError(error.message); return null; }
+  finally { element?.classList.remove("is-busy"); }
+}
 
 // ---------- theme ----------
 
@@ -62,25 +98,23 @@ overlayEl.addEventListener("click", closeSidebar);
 // ---------- data ----------
 
 async function loadState() {
-  const res = await fetch(`${API}/state`);
-  state = await res.json();
+  state = await request(`${API}/state`);
   render();
 }
 
 async function addList(name) {
-  const res = await fetch(`${API}/lists`, {
+  const list = await request(`${API}/lists`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ name }),
   });
-  const list = await res.json();
   state.lists.push(list);
   currentView = list.id;
   render();
 }
 
 async function deleteList(id) {
-  await fetch(`${API}/lists/${id}`, { method: "DELETE" });
+  await request(`${API}/lists/${id}`, { method: "DELETE" });
   state.lists = state.lists.filter((l) => l.id !== id);
   state.tasks = state.tasks.filter((t) => t.listId !== id);
   if (currentView === id) currentView = "today";
@@ -89,40 +123,29 @@ async function deleteList(id) {
 
 // listId: target list. markToday: also tag the new task as Today right after creating it.
 async function addTask(listId, title, markToday) {
-  const res = await fetch(`${API}/lists/${listId}/tasks`, {
+  const task = await request(`${API}/lists/${listId}/tasks`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ title }),
+    body: JSON.stringify({ title, today: !!markToday }),
   });
-  let task = await res.json();
-
-  if (markToday) {
-    const patchRes = await fetch(`${API}/tasks/${task.id}`, {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ today: true }),
-    });
-    task = await patchRes.json();
-  }
 
   state.tasks.push(task);
   render();
 }
 
 async function patchTask(id, patch) {
-  const res = await fetch(`${API}/tasks/${id}`, {
+  const updated = await request(`${API}/tasks/${id}`, {
     method: "PATCH",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(patch),
   });
-  const updated = await res.json();
   const idx = state.tasks.findIndex((t) => t.id === id);
   state.tasks[idx] = updated;
   render();
 }
 
 async function deleteTask(id) {
-  await fetch(`${API}/tasks/${id}`, { method: "DELETE" });
+  await request(`${API}/tasks/${id}`, { method: "DELETE" });
   state.tasks = state.tasks.filter((t) => t.id !== id);
   render();
 }
@@ -184,7 +207,7 @@ function renderSidebar() {
       closeSidebar();
     });
     li.querySelector(".list-delete").addEventListener("click", () => {
-      if (confirm(`Delete "${list.name}" and all its tasks?`)) deleteList(list.id);
+      if (confirm(`Delete "${list.name}" and all its tasks?`)) action(li, () => deleteList(list.id));
     });
     listNavEl.appendChild(li);
   });
@@ -220,26 +243,26 @@ function renderTasks() {
       <button class="task-delete" title="Delete task">✕</button>
     `;
 
-    li.querySelector(".task-check").addEventListener("click", () => {
-      patchTask(task.id, { done: !task.done });
+    li.querySelector(".task-check").addEventListener("click", (event) => {
+      action(event.currentTarget, () => patchTask(task.id, { done: !task.done }));
     });
 
     const titleEl = li.querySelector(".task-title");
     titleEl.addEventListener("blur", () => {
       const newTitle = titleEl.textContent.trim();
-      if (newTitle && newTitle !== task.title) patchTask(task.id, { title: newTitle });
+      if (newTitle && newTitle !== task.title) action(li, () => patchTask(task.id, { title: newTitle }));
       else titleEl.textContent = task.title;
     });
     titleEl.addEventListener("keydown", (e) => {
       if (e.key === "Enter") { e.preventDefault(); titleEl.blur(); }
     });
 
-    li.querySelector(".today-toggle").addEventListener("click", () => {
-      patchTask(task.id, { today: !task.today });
+    li.querySelector(".today-toggle").addEventListener("click", (event) => {
+      action(event.currentTarget, () => patchTask(task.id, { today: !task.today }));
     });
 
-    li.querySelector(".task-delete").addEventListener("click", () => {
-      deleteTask(task.id);
+    li.querySelector(".task-delete").addEventListener("click", (event) => {
+      action(event.currentTarget, () => deleteTask(task.id));
     });
 
     taskListEl.appendChild(li);
@@ -258,6 +281,14 @@ function renderAddTaskControls() {
     opt.textContent = list.name;
     addTaskListSelect.appendChild(opt);
   });
+
+  addTaskInput.disabled = state.lists.length === 0;
+  addTaskInput.placeholder = state.lists.length ? "Add a task and press Enter…" : "Create a list before adding tasks";
+  if (!state.lists.length) {
+    addTaskListSelect.classList.add("hidden");
+    addTaskHintEl.textContent = "Create your first list using the + button.";
+    return;
+  }
 
   if (currentView === "all") {
     addTaskListSelect.classList.remove("hidden");
@@ -287,7 +318,7 @@ document.querySelectorAll(".nav-item").forEach((btn) => {
   });
 });
 
-addTaskForm.addEventListener("submit", (e) => {
+addTaskForm.addEventListener("submit", async (e) => {
   e.preventDefault();
   const title = addTaskInput.value.trim();
   if (!title) return;
@@ -306,8 +337,10 @@ addTaskForm.addEventListener("submit", (e) => {
 
   if (!listId) return;
 
-  addTaskInput.value = "";
-  addTask(listId, title, markToday);
+  await action(addTaskForm, async () => {
+    await addTask(listId, title, markToday);
+    addTaskInput.value = "";
+  });
 });
 
 newListBtn.addEventListener("click", () => {
@@ -320,13 +353,62 @@ cancelListBtn.addEventListener("click", () => {
   newListInput.value = "";
 });
 
-newListForm.addEventListener("submit", (e) => {
+newListForm.addEventListener("submit", async (e) => {
   e.preventDefault();
   const name = newListInput.value.trim();
   if (!name) return;
-  newListInput.value = "";
-  newListForm.classList.add("hidden");
-  addList(name);
+  await action(newListForm, async () => {
+    await addList(name);
+    newListInput.value = "";
+    newListForm.classList.add("hidden");
+  });
 });
 
-loadState();
+loginForm.addEventListener("submit", async (event) => {
+  event.preventDefault();
+  loginError.textContent = "";
+  const button = loginForm.querySelector("button");
+  button.disabled = true;
+  try {
+    const res = await fetch(`${API}/auth/login`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ password: passwordInput.value }),
+    });
+    const body = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(body.error || "Could not sign in");
+    passwordInput.value = "";
+    loginScreen.classList.add("hidden");
+    appEl.classList.remove("hidden");
+    await loadState();
+  } catch (error) {
+    loginError.textContent = error.message;
+  } finally {
+    button.disabled = false;
+  }
+});
+
+document.getElementById("logoutBtn").addEventListener("click", async () => {
+  await fetch(`${API}/auth/logout`, { method: "POST" });
+  appEl.classList.add("hidden");
+  loginScreen.classList.remove("hidden");
+  passwordInput.focus();
+});
+
+async function boot() {
+  try {
+    const status = await fetch(`${API}/auth/status`).then((res) => res.json());
+    if (!status.authenticated) return passwordInput.focus();
+    loginScreen.classList.add("hidden");
+    appEl.classList.remove("hidden");
+    await loadState();
+  } catch (_error) {
+    loginError.textContent = "The server is unavailable.";
+  }
+}
+
+document.addEventListener("visibilitychange", () => {
+  if (!document.hidden && !appEl.classList.contains("hidden")) action(null, loadState);
+});
+
+boot();

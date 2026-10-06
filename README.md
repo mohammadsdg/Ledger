@@ -1,129 +1,110 @@
-# Ledger (todo)
+# Ledger
 
-Turned the old single-file CLI into something a bit more real: a server that
-holds the actual data, a web page for it, and a CLI that's actually fast to
-use day to day. All three talk to the same data so nothing gets out of sync.
+Ledger is a small, self-hosted todo app with a responsive web UI and an offline-first CLI. MySQL is the source of truth, access is protected by a shared password, and devices merge changes per task/list instead of replacing the entire database.
 
+## Install
+
+Requirements: Node.js 18+, MySQL 8+ (or a compatible recent MariaDB), and a reverse proxy for production.
+
+Create the database exactly as requested:
+
+```bash
+mysql -u root -p < schema.sql
 ```
-todo-app/
-├── server/   the API + the "database" (just a json file, don't overthink it) + the web page
-└── cli/      the terminal thing, no deps, works offline
+
+For production, create a restricted database user instead of running the app as root:
+
+```sql
+CREATE USER 'ledger'@'localhost' IDENTIFIED BY 'use-a-strong-password';
+GRANT SELECT, INSERT, UPDATE, DELETE ON ledger.* TO 'ledger'@'localhost';
+FLUSH PRIVILEGES;
 ```
 
-Basic idea: you've got **Lists** (Work, Watch list, whatever), each list has
-**Tasks**, and any task can get a **Today** star on it. There's also an "All
-tasks" view that just dumps everything together.
-
----
-
-## getting it running on a machine
-
-You need Node 18+ (uses the built-in `fetch`, nothing fancy).
-
-**Server first** — this is what actually stores your stuff:
+Install and start the server:
 
 ```bash
 cd server
-npm install
+npm ci
+cp .env.example .env
+# edit .env
 npm start
 ```
 
-Then just open `http://localhost:4000` in a browser, that's the GUI. It's
-running on your machine, nothing's hosted anywhere unless you set that up
-yourself.
+The server loads `server/.env` automatically and refuses to start without `APP_PASSWORD`. `SESSION_SECRET` should be a different long random value. Environment files are intentionally ignored by Git.
 
-**CLI** — no install needed, no dependencies at all, just run it:
+For a quick local run:
 
 ```bash
-cd cli
-node todo.js add "buy milk" -today
+cd server
+APP_PASSWORD=change-me DB_USER=root DB_PASSWORD='your-mysql-password' npm start
 ```
 
-If typing `node todo.js` every time annoys you, do this once:
+Open `http://localhost:4000` and enter `APP_PASSWORD`.
+
+## CLI
+
+The CLI stores an offline cache at `~/.todo-cli/cache.json`. Both `fetch` and `push` now perform a safe two-way merge. Edits to separate records are retained and deletion tombstones stop another offline device from bringing deleted tasks back.
 
 ```bash
 cd cli
 npm link
+
+export TODO_API_URL=https://todo.mastiam.ir/api
+export TODO_PASSWORD='the-same-value-as-APP_PASSWORD'
+
+todo add "buy milk" -today
+todo add "breaking bad" -list "Watch list"
+todo done buy milk
+todo list all
+todo push
 ```
 
-and now you've got a global `todo` command from anywhere. Nice.
+If multiple devices change the same task while offline, the most recently updated copy of that task wins. Unlike the old whole-database strategy, unrelated tasks and lists are never overwritten.
 
-## using the CLI day to day
+## Deploy at `todo.mastiam.ir`
 
-This is the whole point of the rewrite — it should feel like typing a note,
-not filling out a form:
+Run the Node service on `127.0.0.1:4000` with systemd, PM2, or another process manager. A minimal Nginx site is:
 
-```bash
-todo add "breaking bad" -list watch list   # makes the list if it's new
-todo add "call dentist" -today             # lands in Inbox, starred for today
-todo call the plumber -today               # you can even skip "add"
+```nginx
+server {
+    listen 80;
+    server_name todo.mastiam.ir;
 
-todo                    # just shows today's stuff
-todo list all           # everything, every list
-todo list watch list    # one list by name
-todo lists              # list of your lists + how many are open
-
-todo done call dentist      # marks it done, matches by title
-todo undone call dentist    # oops, undo that
-todo today call dentist     # toggle the today star on/off
-todo rm call dentist        # gone
+    location / {
+        proxy_pass http://127.0.0.1:4000;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+}
 ```
 
-If what you typed matches more than one task it'll just show you the
-matches instead of guessing wrong. Type a bit more and try again.
+Enable HTTPS (for example with Certbot) before using the production site. Set `NODE_ENV=production` so the login cookie is HTTPS-only.
 
-There's also `todo menu` if you're in the mood to arrow-key around instead
-of typing — same thing, just the clickier version. And `todo help` if you
-forget any of this.
+## API and sync behavior
 
-## using it on more than one device
+- MySQL writes use a connection pool and transactions.
+- Lists and tasks carry independent update timestamps.
+- Deletions are retained as tombstones and participate in sync.
+- List deletion is atomic and cascades to its tasks.
+- Browser API access uses a signed, HTTP-only, same-site cookie.
+- CLI access uses `Authorization: Bearer <TODO_PASSWORD>`.
+- Login attempts are rate-limited in memory.
 
-This is the part that needed thinking about. The CLI keeps its own local
-copy at `~/.todo-cli/cache.json`, so it works completely offline — add
-tasks on a plane, whatever, no server needed for any of the commands above.
+## Commands
 
-When you do want to sync it up with the server:
-
-```bash
-todo fetch   # pulls down whatever's on the server, overwrites local
-todo push    # pushes your local stuff up to the server
+```text
+todo                         show Today
+todo add <task>              add to Inbox
+todo add <task> -today       add and mark Today
+todo add <task> -list <name> add to a list
+todo list [today|all|name]   show tasks
+todo lists                   show lists and counts
+todo done|undone <task>      update completion
+todo today <task>            toggle Today
+todo rm <task>               delete and record a tombstone
+todo fetch / todo push       merge with the server
+todo menu                    interactive mode
 ```
-
-Heads up: it's simple "last one wins" syncing, not smart merging. Totally
-fine for "same person, couple of laptops," not built for two people editing
-the same list at once. If that ever becomes a real need, that's the next
-thing to build.
-
-To point the CLI at a server that isn't on your own machine (like if you
-host it somewhere), just set an env var:
-
-```bash
-TODO_API_URL=https://wherever-you-hosted-it.com/api todo add "test"
-```
-
-Do that on every device you use and they'll all `fetch`/`push` to the same
-place. The web GUI, though, always talks to whatever server it's being
-served from — no config needed there.
-
-## the web page
-
-Kept it plain HTML/CSS/JS on purpose — no React, no Next, nothing to build
-or bundle. It's a simple GUI, didn't need a framework for it, and this way
-you just open the file and it works.
-
-Dark by default because obviously, but there's a toggle if you're one of
-those people. Also actually works on your phone now — sidebar tucks away
-behind a hamburger menu on small screens instead of just looking broken.
-
-## stuff that's not built yet
-
-Two things are floating around as "later" — didn't want to rush them in
-and make the foundation messy:
-
-- **Telegram bot** — would just hit the same API the CLI and GUI already
-  use, so it's not a huge lift whenever it happens
-- **git integration** — auto-tasks from issues, linking tasks to commits,
-  that kind of thing
-
-Both are easy to bolt on later since everything already flows through one
-shared API instead of being tangled into the CLI directly.

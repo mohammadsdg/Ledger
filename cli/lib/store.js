@@ -9,18 +9,25 @@ const FILE = path.join(DIR, "cache.json");
 function ensure() {
   if (!fs.existsSync(DIR)) fs.mkdirSync(DIR, { recursive: true });
   if (!fs.existsSync(FILE)) {
-    write({ lists: [], tasks: [], lastSyncedAt: null });
+    write({ lists: [], tasks: [], deletedLists: [], deletedTasks: [], lastSyncedAt: null });
   }
 }
 
 function read() {
   ensure();
-  return JSON.parse(fs.readFileSync(FILE, "utf-8"));
+  const state = JSON.parse(fs.readFileSync(FILE, "utf-8"));
+  state.lists = (state.lists || []).map((x) => ({ ...x, updatedAt: x.updatedAt || x.createdAt }));
+  state.tasks = (state.tasks || []).map((x) => ({ ...x, updatedAt: x.updatedAt || x.createdAt }));
+  state.deletedLists = state.deletedLists || [];
+  state.deletedTasks = state.deletedTasks || [];
+  return state;
 }
 
 function write(state) {
   if (!fs.existsSync(DIR)) fs.mkdirSync(DIR, { recursive: true });
-  fs.writeFileSync(FILE, JSON.stringify(state, null, 2), "utf-8");
+  const temp = `${FILE}.${process.pid}.tmp`;
+  fs.writeFileSync(temp, JSON.stringify(state, null, 2), { encoding: "utf-8", mode: 0o600 });
+  fs.renameSync(temp, FILE);
 }
 
 function newId() {

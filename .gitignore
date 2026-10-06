@@ -1,6 +1,6 @@
 # deps
 node_modules/
-package-lock.json
+server/data/
 
 # logs
 npm-debug.log*

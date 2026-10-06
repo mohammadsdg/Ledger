@@ -88,11 +88,11 @@ function taskLine(state, t, showList) {
 // ---------- sync commands ----------
 
 async function cmdFetch() {
-  console.log(c.dim(`Fetching from ${api.BASE} ...`));
+  console.log(c.dim(`Syncing with ${api.BASE} ...`));
   try {
-    const remote = await api.getState();
-    store.write({ ...remote, lastSyncedAt: new Date().toISOString() });
-    console.log(c.green(`✓ Synced. ${remote.lists.length} list(s), ${remote.tasks.length} task(s) now local.`));
+    const merged = await api.sync(store.read());
+    store.write({ ...merged, lastSyncedAt: new Date().toISOString() });
+    console.log(c.green(`✓ Merged safely. ${merged.lists.length} list(s), ${merged.tasks.length} task(s) now local.`));
   } catch (err) {
     console.log(c.red(`✗ Could not reach the server (${err.message}).`));
   }
@@ -102,7 +102,7 @@ async function cmdPush() {
   const state = store.read();
   console.log(c.dim(`Pushing to ${api.BASE} ...`));
   try {
-    const merged = await api.sync(state.lists, state.tasks);
+    const merged = await api.sync(state);
     store.write({ ...merged, lastSyncedAt: new Date().toISOString() });
     console.log(c.green(`✓ Pushed. Server now has ${merged.lists.length} list(s), ${merged.tasks.length} task(s).`));
   } catch (err) {
@@ -126,14 +126,16 @@ async function cmdAdd(args) {
   if (list) {
     target = findListByName(state, list);
     if (!target) {
-      target = { id: store.newId(), name: list, createdAt: new Date().toISOString() };
+      const createdAt = new Date().toISOString();
+      target = { id: store.newId(), name: list, createdAt, updatedAt: createdAt };
       state.lists.push(target);
       console.log(c.dim(`(created new list "${list}")`));
     }
   } else {
     target = inboxList(state);
     if (!target) {
-      target = { id: "inbox", name: "Inbox", createdAt: new Date().toISOString() };
+      const createdAt = new Date().toISOString();
+      target = { id: "inbox", name: "Inbox", createdAt, updatedAt: createdAt };
       state.lists.push(target);
     }
   }
@@ -264,6 +266,7 @@ async function cmdRemove(args) {
   }
   const task = matches[0];
   state.tasks = state.tasks.filter((t) => t.id !== task.id);
+  state.deletedTasks.push({ id: task.id, deletedAt: new Date().toISOString() });
   store.write(state);
   console.log(c.green(`✓ Removed: ${task.title}`));
 }
@@ -280,8 +283,8 @@ ${c.bold("todo")} — quick, offline-first task capture
   todo undone <task>                        Mark a task not done
   todo today <task>                         Toggle the Today tag on a task
   todo rm <task>                            Delete a task
-  todo fetch                                Pull latest state from the server
-  todo push                                 Upload local changes to the server
+  todo fetch                                Merge local and server changes
+  todo push                                 Merge local and server changes
   todo menu                                 Old arrow-key browsing menu
 
 Examples:
@@ -292,6 +295,7 @@ Examples:
 
 Local cache: ${store.FILE}
 Server:      ${api.BASE}  (override with TODO_API_URL)
+Password:    set TODO_PASSWORD to the server's APP_PASSWORD
 `);
 }
 
@@ -314,7 +318,8 @@ async function newListFlow() {
   const name = await promptText("New list name: ");
   if (!name) return;
   const state = store.read();
-  state.lists.push({ id: store.newId(), name, createdAt: new Date().toISOString() });
+  const createdAt = new Date().toISOString();
+  state.lists.push({ id: store.newId(), name, createdAt, updatedAt: createdAt });
   store.write(state);
 }
 
@@ -401,6 +406,7 @@ async function taskActionsFlow(taskId) {
       const ok = await confirmPrompt(`Delete "${task.title}"?`);
       if (ok) {
         state.tasks = state.tasks.filter((t) => t.id !== task.id);
+        state.deletedTasks.push({ id: task.id, deletedAt: new Date().toISOString() });
         store.write(state);
         return;
       }
