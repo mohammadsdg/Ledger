@@ -12,7 +12,7 @@ export TODO_API_URL=https://tasks.example.com/api
 export TODO_PASSWORD='the-same-value-as-APP_PASSWORD'
 ```
 
-`TODO_API_URL` defaults to `http://localhost:4000/api`. Put the exports in your shell profile if you do not want to repeat them in every terminal.
+The CLI has no separate `.env` file. Set `TODO_PASSWORD` in your shell or process environment for syncing; `TODO_API_URL` overrides the built-in server URL. Put the exports in your shell profile if you do not want to repeat them in every terminal.
 
 ## Commands
 
@@ -21,11 +21,10 @@ todo                                      Show My Day
 todo add <task>                           Add to All tasks
 todo add <task> -today                    Add to My Day
 todo add <task> -list <name>              Add to a list (creates it if needed)
-todo <task> [-today] [-list <name>]        Shorthand for todo add
 todo list [today|all|<list name>]          Show a view or list
 todo lists                                Show lists and open/total counts
-todo done <task>                          Mark a title match complete
-todo undone <task>                        Mark a title match incomplete
+todo done <number>                        Complete a numbered task from the last list shown
+todo undone <number>                      Reopen a numbered task from the last list shown
 todo today <task>                         Toggle My Day
 todo rm <task>                            Delete a task
 todo menu                                 Open the interactive menu
@@ -34,7 +33,7 @@ todo push                                 Merge local and server changes
 todo help | todo --help | todo -h          Show built-in help
 ```
 
-Task matching is case-insensitive and can use part of a title. Ledger will list the candidates instead of guessing when several tasks match. Add `-list <name>` to narrow a task command to one list.
+Each `todo` or `todo list ...` output numbers its tasks from 1. `done` and `undone` use those numbers from the most recently displayed list, including custom lists. Show the list again after syncing or switching views to refresh the numbering. Commands such as `today` and `rm` still match titles case-insensitively; use `-list <name>` to narrow a title match.
 
 ## Examples
 
@@ -42,8 +41,9 @@ Task matching is case-insensitive and can use part of a title. Ledger will list 
 todo add "buy milk"
 todo add "call dentist" -today
 todo add "The Left Hand of Darkness" -list "Reading"
-todo done call dentist
-todo undone dentist
+todo list all
+todo done 2
+todo undone 2
 todo today buy milk
 todo rm "The Left Hand"
 todo list reading

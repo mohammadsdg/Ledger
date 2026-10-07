@@ -74,6 +74,15 @@ if (!APP_PASSWORD) {
 app.disable("x-powered-by");
 app.set("trust proxy", 1);
 app.use(express.json({ limit: "1mb" }));
+app.get("/healthz", async (_req, res) => {
+  try {
+    await db.pool.query("SELECT 1");
+    res.json({ status: "ok" });
+  } catch (error) {
+    console.error("Health check failed:", error);
+    res.status(503).json({ status: "unavailable" });
+  }
+});
 app.use(express.static(path.join(__dirname, "dist")));
 
 const route = (fn) => (req, res, next) => Promise.resolve(fn(req, res, next)).catch(next);
@@ -351,11 +360,18 @@ app.get("*", (_req, res) => res.sendFile(path.join(__dirname, "dist", "index.htm
 if (require.main === module) {
   db.pool.query("SELECT 1").then(async () => {
     await configurePush();
-    await deliverDueReminders();
-    setInterval(() => deliverDueReminders().catch((error) => console.error(error)), 30_000).unref();
-    app.listen(PORT, () => console.log(`Ledger running at http://localhost:${PORT}`));
+    await deliverDueReminders().catch((error) => console.error("Initial reminder delivery failed:", error));
+    const reminderTimer = setInterval(() => deliverDueReminders().catch((error) => console.error("Reminder delivery failed:", error)), 30_000);
+    reminderTimer.unref();
+    const server = app.listen(PORT, () => console.log(`Ledger listening on port ${PORT}`));
+    server.on("error", (error) => { console.error("HTTP server failed:", error); process.exitCode = 1; });
+    for (const signal of ["SIGINT", "SIGTERM"]) process.on(signal, () => {
+      console.log(`Received ${signal}; shutting down`);
+      clearInterval(reminderTimer);
+      server.close(() => db.pool.end().then(() => process.exit(0)).catch((error) => { console.error("Shutdown failed:", error); process.exit(1); }));
+    });
   }).catch((error) => {
-    console.error(`Could not connect to MySQL: ${error.message}`);
+    console.error("Ledger startup failed:", error);
     process.exit(1);
   });
 }

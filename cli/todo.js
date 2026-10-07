@@ -182,16 +182,15 @@ async function cmdList(args) {
     title = list.name;
   }
 
+  const sorted = tasks.slice().sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+  store.saveSelection(title, sorted.map((task) => task.id));
   console.log(c.bold(title));
   if (tasks.length === 0) {
     console.log(c.dim("  (nothing here)"));
     return;
   }
   const showList = title === "My Day" || title === "All tasks";
-  tasks
-    .slice()
-    .sort((a, b) => a.createdAt.localeCompare(b.createdAt))
-    .forEach((t) => console.log("  " + taskLine(state, t, showList)));
+  sorted.forEach((t, index) => console.log(`  ${index + 1}. ${taskLine(state, t, showList)}`));
 }
 
 async function cmdLists() {
@@ -208,22 +207,23 @@ async function cmdLists() {
 }
 
 async function cmdDone(args, done = true) {
-  const { text, list } = parseArgs(args);
-  if (!text) {
-    console.log(c.red("Which task? e.g.  todo done buy milk"));
+  const number = args[0];
+  if (args.length !== 1 || !/^[1-9]\d*$/.test(number || "")) {
+    console.log(c.red(`Use a number from the last list shown, e.g.  todo ${done ? "done" : "undone"} 1`));
     return;
   }
+  const selection = store.readSelection();
+  if (!selection?.taskIds?.length) {
+    console.log(c.red("Show a list first: todo list all (or just todo for My Day)."));
+    return;
+  }
+  const taskId = selection.taskIds[Number(number) - 1];
   const state = store.read();
-  const matches = findTaskMatches(state, text, list);
-  if (matches.length === 0) {
-    console.log(c.red(`No task matching "${text}".`));
+  const task = state.tasks.find((item) => item.id === taskId);
+  if (!task) {
+    console.log(c.red(`No task numbered ${number} in ${selection.view}. Show the list again.`));
     return;
   }
-  if (matches.length > 1) {
-    printAmbiguous(state, matches);
-    return;
-  }
-  const task = matches[0];
   task.done = done;
   task.updatedAt = new Date().toISOString();
   store.write(state);
@@ -281,11 +281,10 @@ function printHelp() {
 ${c.bold("todo")} — quick, offline-first task capture
 
   todo add <task> [-today] [-list <name>]   Add a task (default: All tasks)
-  todo <task text>                          Shorthand for "todo add ..."
   todo list [today|all|<list name>]         Show tasks (default: My Day)
   todo lists                                Show all lists with counts
-  todo done <task>                          Mark a task done (matches by title)
-  todo undone <task>                        Mark a task not done
+  todo done <number>                        Complete a task from the last list shown
+  todo undone <number>                      Reopen a task from the last list shown
   todo today <task>                         Toggle the My Day tag on a task
   todo rm <task>                            Delete a task
   todo fetch                                Merge local and server changes
@@ -295,8 +294,8 @@ ${c.bold("todo")} — quick, offline-first task capture
 Examples:
   todo add "breaking bad" -list watch list
   todo add "call dentist" -today
-  todo done call dentist
   todo list watch list
+  todo done 1
 
 Local cache: ${store.FILE}
 Server:      ${api.BASE}  (override with TODO_API_URL)
@@ -482,8 +481,8 @@ async function main() {
   if (!cmd) return cmdList([]); // bare `todo` = quick glance at Today, not a maze of menus
 
   if (!KNOWN_COMMANDS.includes(cmd)) {
-    // `todo buy milk -today` — no need to type "add"
-    return cmdAdd(args);
+    console.log(c.red(`Unknown command "${cmd}". Use todo add <task> to add a task.`));
+    return printHelp();
   }
 
   const rest = args.slice(1);

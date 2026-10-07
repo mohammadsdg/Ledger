@@ -7,12 +7,13 @@ import {
 } from "@mui/icons-material";
 import {
   Alert, Button, Checkbox, CircularProgress, Dialog, DialogActions, DialogContent,
-  DialogTitle, IconButton, MenuItem, Select, Snackbar, TextField, Tooltip,
+  DialogTitle, IconButton, MenuItem, Select, Snackbar, TextField, ToggleButton,
+  ToggleButtonGroup, Tooltip,
 } from "@mui/material";
 import { DateCalendar, TimeClock } from "@mui/x-date-pickers";
 import { isTaskInView } from "./taskViews.mjs";
 import { emptyState, normalizeState, readCachedState, removeCachedState, writeCachedState } from "./offlineState.mjs";
-import { formatJalali, formatReminderTime, moment, toStorageDate } from "./dates.mjs";
+import { formatJalali, formatReminderTime, moment, setReminderPeriod, toStorageDate } from "./dates.mjs";
 
 const API = "/api";
 const todayKey = () => dayjs().format("YYYY-MM-DD");
@@ -91,7 +92,7 @@ function TaskRow({ task, listName, currentDay, onOpen, onToggleDone, onToggleImp
       {task.done ? <Check /> : <RadioButtonUnchecked />}
     </IconButton>
     <div className="taskCopy"><span className="taskTitle">{task.title}</span><span className="taskMeta">
-      {listName && <i>{listName}</i>}{task.myDay === currentDay && <i><Sunny fontSize="inherit" /> My Day</i>}{missedMyDay && <i className="missed"><Sunny fontSize="inherit" /> {missedLabel}</i>}{task.dueDate && <i><CalendarMonth fontSize="inherit" /> {formatJalali(task.dueDate, "jD jMMMM")}</i>}{task.steps?.length > 0 && <i>{task.steps.filter((s) => s.done).length}/{task.steps.length} steps</i>}
+      {task.dueDate && <i className="dueBadge"><CalendarMonth fontSize="inherit" /> Due {formatJalali(task.dueDate, "jD jMMMM jYYYY")}</i>}{listName && <i>{listName}</i>}{task.myDay === currentDay && <i><Sunny fontSize="inherit" /> My Day</i>}{missedMyDay && <i className="missed"><Sunny fontSize="inherit" /> {missedLabel}</i>}{task.steps?.length > 0 && <i>{task.steps.filter((s) => s.done).length}/{task.steps.length} steps</i>}
     </span></div>
     <Tooltip title={task.important ? "Remove from Important" : "Mark important"}><IconButton className="starButton" onClick={(event) => { event.stopPropagation(); onToggleImportant(task); }}>{task.important ? <Star /> : <StarBorder />}</IconButton></Tooltip>
   </article>;
@@ -164,7 +165,11 @@ function ReminderControl({ taskId, value, notificationsReady, onSave }) {
           <DateCalendar value={date} onChange={(next) => next && setDate(next)} disablePast sx={{ width: "100%", maxWidth: 320 }} />
         </div> : <>
           <div className="reminderDateSummary"><CalendarMonth /><span>{formatJalali(date)}</span><Button size="small" onClick={() => setStep("date")}>Change</Button></div>
-          <div className="reminderTimePreview" aria-live="polite"><strong>{formatReminderTime(time)}</strong><span>Choose AM or PM below</span></div>
+          <div className="reminderTimePreview" aria-live="polite"><strong>{formatReminderTime(time)}</strong></div>
+          <ToggleButtonGroup className="reminderPeriod" size="small" exclusive value={time.hour() < 12 ? "AM" : "PM"} onChange={(_event, period) => { if (period) setTime((current) => setReminderPeriod(current, period)); }} aria-label="Reminder time period">
+            <ToggleButton value="AM" aria-label="AM">AM</ToggleButton>
+            <ToggleButton value="PM" aria-label="PM">PM</ToggleButton>
+          </ToggleButtonGroup>
           <div className="reminderPicker timePicker"><TimeClock value={time} onChange={(next) => next && setTime(next)} views={["hours", "minutes"]} minutesStep={5} ampm sx={{ width: "100%", maxWidth: 320 }} /></div>
         </>}
         {error && <p className="reminderError">{error}</p>}
@@ -457,7 +462,7 @@ function App() {
     if (!start || start.id !== event.pointerId) return;
     const dx = event.clientX - start.x;
     const dy = Math.abs(event.clientY - start.y);
-    if (dy < 70 && (dx < -72 || (start.x < 36 && dx > 72))) openMobileNav();
+    if (dx > 72 && dx > dy * 1.4) openMobileNav();
   }
   function openNewList() { history.pushState({ ledger: true, view, layer: "new-list" }, "", location.pathname); setNewListOpen(true); }
   function closeNewList() { if (history.state?.layer === "new-list") history.back(); else setNewListOpen(false); }

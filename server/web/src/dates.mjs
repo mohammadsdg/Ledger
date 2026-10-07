@@ -4,14 +4,19 @@ moment.loadPersian({ dialect: "persian-modern", usePersianDigits: true });
 
 export function formatJalali(value, pattern = "dddd، jD jMMMM jYYYY") {
   const date = moment(value);
-  return date.isValid() ? date.format(pattern) : "";
+  return date.isValid() ? date.clone().locale("en").format(pattern.replace("،", ",")).toLowerCase() : "";
 }
 
 export function formatReminderTime(value) {
   const time = moment(value);
   if (!time.isValid()) return "";
-  const period = time.hour() < 12 ? "قبل‌ازظهر (AM)" : "بعدازظهر (PM)";
-  return `${time.format("h:mm")} ${period}`;
+  return time.clone().locale("en").format("h:mm A");
+}
+
+export function setReminderPeriod(value, period) {
+  const time = moment(value).clone();
+  const hour = time.hour() % 12;
+  return time.hour(hour + (period === "PM" ? 12 : 0));
 }
 
 export function toStorageDate(value) {

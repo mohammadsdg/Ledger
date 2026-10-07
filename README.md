@@ -27,7 +27,7 @@ Open a task to work with the useful details:
 - Repeat
 - Notes
 
-Dates use the Persian Jalali calendar. The detail panel sits beside the list on desktop and becomes a comfortable full-screen sheet on mobile.
+Dates use the Persian Jalali calendar with English month and weekday names and Western digits. The detail panel sits beside the list on desktop and becomes a comfortable full-screen sheet on mobile.
 
 ## A few useful details
 
@@ -101,7 +101,7 @@ Put Ledger behind HTTPS, open it in your phone browser, and choose **Install app
 
 On the first reminder, Ledger asks for notification permission and registers that device. Notification keys are generated automatically and kept in the MySQL `app_settings` table, so they survive restarts. The Node server needs to stay running to deliver reminders.
 
-The installed Android app keeps its most recent data locally. You can add, edit, complete, and delete tasks or steps without a connection; Ledger shows an offline status and merges those changes with the server automatically when connectivity returns. In the main task view, swipe left to open navigation (a right swipe from the left edge works too).
+The installed Android app keeps its most recent data locally. You can add, edit, complete, and delete tasks or steps without a connection; Ledger shows an offline status and merges those changes with the server automatically when connectivity returns. In the main task view, swipe right to open navigation.
 
 If you prefer to manage Web Push keys yourself, set `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`, and `VAPID_SUBJECT` in the environment.
 
@@ -109,7 +109,7 @@ If you prefer to manage Web Push keys yourself, set `VAPID_PUBLIC_KEY`, `VAPID_P
 
 The complete command reference, setup options, matching rules, offline behavior, and troubleshooting notes are in the [CLI usage guide](cli/README.md). Run `todo --help` for the same quick reference in your terminal.
 
-The CLI keeps its local cache in `~/.todo-cli/cache.json`, so capturing and editing tasks does not depend on a network connection.
+The CLI keeps its local cache in `~/.todo-cli/cache.json`, so capturing and editing tasks does not depend on a network connection. It has no separate `.env` file; set its connection variables in your shell environment.
 
 ```bash
 cd cli
@@ -130,7 +130,7 @@ todo
 todo list all
 todo list reading
 
-todo done buy milk
+todo done 1
 todo today call dentist
 todo rm buy milk
 
@@ -142,7 +142,20 @@ Both `push` and `fetch` perform a two-way merge. Changes to unrelated tasks are 
 
 ## Self-hosting
 
-Ledger listens on port `4000` by default. In production, run it with systemd, PM2, Docker, or the process manager you already use, then place a reverse proxy in front of it.
+Ledger listens on port `4000` by default. In production, run it with systemd, PM2, Docker, or the process manager you already use, then place a reverse proxy in front of it. Build the web app after each update, before restarting the server. For PM2:
+
+```bash
+cd server
+npm ci
+npm run build
+pm2 start ecosystem.config.cjs
+pm2 logs ledger
+curl http://127.0.0.1:4000/healthz
+```
+
+On later updates, run `npm ci && npm run build && pm2 reload ecosystem.config.cjs --update-env`. PM2 timestamps the logs, restarts a crashed process with a short delay, and gives it time to close connections on shutdown. The health endpoint checks the database connection and returns HTTP 503 when it is unavailable.
+
+Use `pm2 status ledger` to check the process and `pm2 logs ledger --lines 100` to inspect startup, reminder, and server errors. PM2 keeps the log files under its own log directory; set up rotation with your normal host maintenance policy.
 
 A small Nginx configuration is enough:
 

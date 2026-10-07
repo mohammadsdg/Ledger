@@ -5,6 +5,7 @@ const crypto = require("crypto");
 
 const DIR = path.join(os.homedir(), ".todo-cli");
 const FILE = path.join(DIR, "cache.json");
+const SELECTION_FILE = path.join(DIR, "selection.json");
 
 function ensure() {
   if (!fs.existsSync(DIR)) fs.mkdirSync(DIR, { recursive: true });
@@ -39,4 +40,14 @@ function newId() {
   return crypto.randomUUID();
 }
 
-module.exports = { read, write, newId, FILE };
+function saveSelection(view, taskIds) {
+  if (!fs.existsSync(DIR)) fs.mkdirSync(DIR, { recursive: true });
+  fs.writeFileSync(SELECTION_FILE, JSON.stringify({ view, taskIds }), { mode: 0o600 });
+}
+
+function readSelection() {
+  try { return JSON.parse(fs.readFileSync(SELECTION_FILE, "utf-8")); }
+  catch { return null; }
+}
+
+module.exports = { read, write, newId, FILE, saveSelection, readSelection };

@@ -59,8 +59,9 @@ nav { display: grid; gap: 3px; }
 .checkButton { color: var(--accent) !important; }
 .taskCopy { min-width: 0; flex: 1; display: grid; gap: 5px; }
 .taskTitle { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
-.taskMeta { display: flex; gap: 10px; color: var(--muted); font-size: 11px; }
+.taskMeta { display: flex; flex-wrap: wrap; gap: 5px 10px; color: var(--muted); font-size: 11px; }
 .taskMeta i { display: inline-flex; gap: 3px; align-items: center; font-style: normal; white-space: nowrap; }
+.taskMeta i.dueBadge { color: #e9c292; background: rgba(226,191,141,.1); border-radius: 10px; padding: 2px 7px; }
 .taskMeta i.missed { color: #f5ad67; background: rgba(245,173,103,.1); border-radius: 10px; padding: 1px 6px; }
 .completed .taskTitle { text-decoration: line-through; color: var(--muted); }
 .completedSection { margin-top: 10px; }
@@ -113,6 +114,10 @@ nav { display: grid; gap: 3px; }
 .reminderTimePreview { display: flex; align-items: baseline; justify-content: center; gap: 8px; min-height: 31px; padding-top: 12px; color: var(--accent); }
 .reminderTimePreview strong { font-size: 16px; font-weight: 650; }
 .reminderTimePreview span { color: var(--muted); font-size: 10px; }
+.reminderPeriod { display: flex !important; justify-content: center; margin: 10px auto 2px; }
+.reminderPeriod .MuiToggleButton-root { min-width: 78px; min-height: 40px; color: #e9e7e0; border-color: var(--line); font-weight: 700; }
+.reminderPeriod .MuiToggleButton-root.Mui-selected { color: #102019; background: var(--accent); }
+.reminderPeriod .MuiToggleButton-root.Mui-selected:hover { background: #78c9a8; }
 .timePicker { min-height: 254px; }
 .dueDateHeading { min-height: 44px; display: flex; align-items: center; justify-content: center; gap: 8px; margin-bottom: 2px; color: var(--accent); font-size: 13px; }
 .dueDateHeading svg { font-size: 19px; }
@@ -142,13 +147,26 @@ nav { display: grid; gap: 3px; }
 }
 @media (max-width: 800px) {
   .appShell, .appShell.detailsOpen { display: block; }
+  .appShell { background: radial-gradient(ellipse 110% 45% at 95% -8%, rgba(211,142,83,.18), transparent 70%), radial-gradient(ellipse 90% 55% at -20% 45%, rgba(95,180,148,.09), transparent 75%), #14171a; }
+  .sidebar { background: #1c2222; border-right-color: rgba(226,191,141,.16); }
+  .brand { color: #f1e7d6; }
+  .navItem.active { background: linear-gradient(90deg, rgba(95,180,148,.19), rgba(95,180,148,.04)); }
   .sidebar { position: fixed; inset: 0 auto 0 0; width: min(86vw, 300px); transform: translate3d(-105%,0,0); transition: transform .34s cubic-bezier(.16,1,.3,1); box-shadow: 12px 0 45px rgba(0,0,0,.35); will-change: transform; backface-visibility: hidden; }.sidebar.open { transform: translate3d(0,0,0); }
   .sidebarResizeHandle { display: none; }
   .scrim { display: block; position: fixed; inset: 0; z-index: 19; border: 0; background: rgba(0,0,0,.55); animation: fadeIn .3s ease-out; }
   .menuButton { display: inline-flex !important; margin-left: -9px !important; }
-  .topbar { min-height: 88px; padding-top: max(16px, env(safe-area-inset-top)); }
+  .topbar { min-height: 106px; padding-top: max(20px, env(safe-area-inset-top)); align-items: flex-start; }
+  .topbar h1 { color: #f4e9d8; font-family: Georgia, "Iowan Old Style", serif; font-weight: 600; letter-spacing: -.025em; }
+  .topbar .dateLine { margin-top: 5px; letter-spacing: .025em; }
+  .topbar .dateLine > span:first-child { color: #b9ae9e; }
+  .menuButton { color: #e9c292 !important; background: rgba(226,191,141,.1) !important; border: 1px solid rgba(226,191,141,.13) !important; }
   .taskArea { height: 100%; }
   .taskScroller { padding-bottom: calc(60px + env(safe-area-inset-bottom)); }
+  .quickAdd { border-color: rgba(226,191,141,.17); background: rgba(34,39,38,.97); box-shadow: 0 12px 32px rgba(0,0,0,.14); }
+  .taskRow { background: rgba(31,37,37,.93); border-color: rgba(226,191,141,.075); box-shadow: 0 6px 18px rgba(0,0,0,.09); }
+  .taskRow:active { transform: scale(.99); background: #283331; }
+  .taskTitle { color: #f0ebe1; }
+  .completed .taskTitle { color: var(--muted); }
   .detailPane { position: fixed; inset: 0; width: 100%; border: 0; padding: max(6px, env(safe-area-inset-top)) 8px max(8px, env(safe-area-inset-bottom)); background: #1b1f22; z-index: 30; animation-duration: .34s; animation-timing-function: cubic-bezier(.16,1,.3,1); will-change: transform, opacity; }
   .detailHeader { position: sticky; top: 0; z-index: 2; background: #1b1f22; }.detailHeader > button:first-child { display: inline-flex; }
   .deleteList.MuiIconButton-root { opacity: 1; }
@@ -158,7 +176,7 @@ nav { display: grid; gap: 3px; }
   .topbar h1 { font-size: 28px; }
   .quickAdd { margin-bottom: 12px; }
   .quickAdd button { opacity: 1; transform: none; }
-  .taskRow { min-height: 62px; border-radius: 9px; }.taskMeta { gap: 7px; max-width: 100%; overflow: hidden; }
+  .taskRow { min-height: 62px; border-radius: 9px; }.taskMeta { gap: 5px 7px; max-width: 100%; }
   .loginCard { padding: 28px 22px; }
   .MuiDialog-paper:has(.MuiPickersLayout-root) { width: calc(100% - 16px); max-height: calc(100% - 16px); margin: 8px; border-radius: 16px; }
   .MuiPickersLayout-root { width: 100%; max-width: 100%; }
