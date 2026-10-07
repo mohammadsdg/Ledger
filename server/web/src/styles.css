@@ -6,7 +6,7 @@ button, input, textarea { font: inherit; }
 button { -webkit-tap-highlight-color: transparent; }
 
 .centerLoader { height: 100%; display: grid; place-items: center; }
-.appShell { height: 100%; display: grid; grid-template-columns: var(--sidebar-width, 250px) minmax(0, 1fr); background: radial-gradient(circle at 60% -20%, #203029 0, #14171a 42%); animation: appOpen .42s cubic-bezier(.16,1,.3,1) both; }
+.appShell { height: 100%; min-height: 0; display: grid; grid-template-columns: var(--sidebar-width, 250px) minmax(0, 1fr); background: radial-gradient(circle at 60% -20%, #203029 0, #14171a 42%); animation: appOpen .42s cubic-bezier(.16,1,.3,1) both; }
 .appShell.detailsOpen { grid-template-columns: var(--sidebar-width, 250px) minmax(320px, 1fr) 390px; }
 
 .sidebar { position: relative; min-width: 0; background: rgba(27, 31, 34, .97); border-right: 1px solid var(--line); padding: 20px 12px; overflow-y: auto; z-index: 20; }
@@ -33,7 +33,7 @@ nav { display: grid; gap: 3px; }
 .deleteList svg { font-size: 16px; }
 .listNav:hover .deleteList { opacity: 1; }
 
-.taskArea { min-width: 0; height: 100%; display: flex; flex-direction: column; touch-action: pan-y; }
+.taskArea { min-width: 0; min-height: 0; height: 100%; display: flex; flex-direction: column; touch-action: pan-y; }
 .topbar { min-height: 104px; display: flex; align-items: center; padding: 28px clamp(20px, 5vw, 60px) 18px; gap: 14px; }
 .topbar h1 { margin: 0; font-size: clamp(26px, 4vw, 38px); letter-spacing: -.04em; }
 .topbar span { display: block; color: var(--muted); font-size: 13px; margin-top: 3px; }
@@ -46,7 +46,7 @@ nav { display: grid; gap: 3px; }
 .syncBadge.syncing i { background: var(--sidebar); }
 .syncBadge.offline i { inset: 4px; background: #f5ad67; box-shadow: 0 0 0 3px rgba(245,173,103,.12); animation: offlineBreathe 2.4s ease-in-out infinite; }
 .menuButton { display: none !important; }
-.taskScroller { overflow-y: auto; padding: 0 clamp(20px, 5vw, 60px) 70px; }
+.taskScroller { flex: 1 1 0; min-height: 0; overflow-y: auto; overscroll-behavior-y: contain; -webkit-overflow-scrolling: touch; padding: 0 clamp(20px, 5vw, 60px) 70px; }
 .quickAdd { height: 52px; display: flex; align-items: center; gap: 12px; padding: 0 10px 0 16px; margin-bottom: 18px; background: rgba(27,31,34,.92); border: 1px solid var(--line); border-radius: 12px; box-shadow: 0 12px 30px rgba(0,0,0,.12); transition: border-color .2s, box-shadow .2s; }
 .quickAdd:focus-within { border-color: var(--accent); box-shadow: 0 12px 35px rgba(95,180,148,.12); }
 .quickAdd svg { color: var(--accent); }
@@ -147,6 +147,7 @@ nav { display: grid; gap: 3px; }
 }
 @media (max-width: 800px) {
   .appShell, .appShell.detailsOpen { display: block; }
+  .appShell { height: 100dvh; }
   .appShell { background: radial-gradient(ellipse 110% 45% at 95% -8%, rgba(211,142,83,.18), transparent 70%), radial-gradient(ellipse 90% 55% at -20% 45%, rgba(95,180,148,.09), transparent 75%), #14171a; }
   .sidebar { background: #1c2222; border-right-color: rgba(226,191,141,.16); }
   .brand { color: #f1e7d6; }
