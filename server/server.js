@@ -36,10 +36,11 @@ async function configurePush() {
 
 async function deliverDueReminders() {
   if (!pushReady) return;
-  const [subscriptions] = await db.pool.query("SELECT id,endpoint,p256dh,auth FROM push_subscriptions");
-  if (!subscriptions.length) return;
-  const [tasks] = await db.pool.execute("SELECT id,title,reminder_at reminderAt FROM tasks WHERE done=FALSE AND reminder_at IS NOT NULL AND reminder_at<=? AND reminder_sent_at IS NULL ORDER BY reminder_at LIMIT 100", [Date.now()]);
+  const [tasks] = await db.pool.execute("SELECT id,title,reminder_at reminderAt,reminder_subscription_id subscriptionId FROM tasks WHERE done=FALSE AND reminder_at IS NOT NULL AND reminder_at<=? AND reminder_sent_at IS NULL ORDER BY reminder_at LIMIT 100", [Date.now()]);
   for (const task of tasks) {
+    if (!task.subscriptionId) continue;
+    const [subscriptions] = await db.pool.execute("SELECT id,endpoint,p256dh,auth FROM push_subscriptions WHERE id=?", [task.subscriptionId]);
+    if (!subscriptions.length) continue;
     let delivered = false;
     const payload = JSON.stringify({ title: task.title, body: "Ledger reminder", taskId: task.id, url: `/?task=${encodeURIComponent(task.id)}` });
     for (const subscription of subscriptions) {
@@ -129,6 +130,30 @@ app.post("/api/auth/logout", (_req, res) => {
   res.set("Set-Cookie", `ledger_session=; Path=/; HttpOnly; SameSite=Strict; Max-Age=0${secureCookie}`).status(204).end();
 });
 app.use("/api", (req, res, next) => authenticated(req) ? next() : res.status(401).json({ error: "Authentication required" }));
+app.use("/api", route(async (_req, _res, next) => {
+  try { await db.pool.query("DELETE FROM task_archive WHERE deleted_at<=?", [Date.now() - 24 * 60 * 60 * 1000]); } catch (_error) {}
+  next();
+}));
+
+app.get("/api/archive", route(async (_req, res) => res.json(await db.getDeletedTasks())));
+app.post("/api/archive/:id/restore", route(async (req, res) => {
+  const restored = await db.transaction(async (conn) => {
+    const [rows] = await conn.execute("SELECT * FROM task_archive WHERE id=? AND deleted_at>?", [req.params.id, Date.now() - 24 * 60 * 60 * 1000]);
+    if (!rows.length) return false;
+    const task = rows[0];
+    const [lists] = await conn.execute("SELECT id FROM lists WHERE id=?", [task.list_id]);
+    if (!lists.length) return false;
+    const now = Date.now();
+    await conn.execute("INSERT INTO tasks(id,list_id,title,done,today,my_day,important,reminder_at,due_date,repeat_rule,note,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)", [task.id, task.list_id, task.title, task.done, task.today, task.my_day, task.important, task.reminder_at, task.due_date, task.repeat_rule, task.note, task.created_at, now]);
+    await conn.execute("INSERT INTO steps(id,task_id,title,done,created_at,updated_at) SELECT id,task_id,title,done,created_at,updated_at FROM task_archive_steps WHERE task_id=?", [task.id]);
+    await conn.execute("DELETE FROM task_archive WHERE id=?", [task.id]);
+    await conn.execute("DELETE FROM deletions WHERE entity_type='step' AND entity_id IN (SELECT id FROM steps WHERE task_id=?)", [task.id]);
+    await conn.execute("DELETE FROM deletions WHERE entity_type='task' AND entity_id=?", [task.id]);
+    return true;
+  });
+  if (!restored) return res.status(404).json({ error: "Archived task is no longer available" });
+  res.json(await db.getState());
+}));
 
 app.get("/api/push/public-key", route(async (_req, res) => {
   if (!pushPublicKey) return res.status(503).json({ error: "Notifications are not ready" });
@@ -184,7 +209,14 @@ app.delete("/api/lists/:id", route(async (req, res) => {
     if (!lists.length) return false;
     const now = Date.now();
     const [tasks] = await conn.execute("SELECT id FROM tasks WHERE list_id=?", [req.params.id]);
-    for (const task of tasks) await putDeletion(conn, "task", task.id, now);
+    for (const taskRef of tasks) {
+      const [taskRows] = await conn.execute("SELECT * FROM tasks WHERE id=?", [taskRef.id]);
+      const task = taskRows[0];
+      const [steps] = await conn.execute("SELECT * FROM steps WHERE task_id=?", [task.id]);
+      await conn.execute("INSERT INTO task_archive(id,list_id,title,done,today,my_day,important,reminder_at,due_date,repeat_rule,note,created_at,updated_at,deleted_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?) ON DUPLICATE KEY UPDATE title=VALUES(title),updated_at=VALUES(updated_at),deleted_at=VALUES(deleted_at)", [task.id, task.list_id, task.title, task.done, task.today, task.my_day, task.important, task.reminder_at, task.due_date, task.repeat_rule, task.note, task.created_at, task.updated_at, now]);
+      for (const step of steps) await conn.execute("INSERT INTO task_archive_steps(id,task_id,title,done,created_at,updated_at) VALUES(?,?,?,?,?,?) ON DUPLICATE KEY UPDATE title=VALUES(title),done=VALUES(done),updated_at=VALUES(updated_at)", [step.id, step.task_id, step.title, step.done, step.created_at, step.updated_at]);
+      await putDeletion(conn, "task", task.id, now);
+    }
     await putDeletion(conn, "list", req.params.id, now);
     await conn.execute("DELETE FROM lists WHERE id=?", [req.params.id]);
     return true;
@@ -294,9 +326,16 @@ app.delete("/api/steps/:id", route(async (req, res) => {
 }));
 app.delete("/api/tasks/:id", route(async (req, res) => {
   const removed = await db.transaction(async (conn) => {
+    const [tasks] = await conn.execute("SELECT * FROM tasks WHERE id=?", [req.params.id]);
+    if (!tasks.length) return false;
+    const task = tasks[0];
+    const [steps] = await conn.execute("SELECT * FROM steps WHERE task_id=?", [req.params.id]);
+    const deletedAt = Date.now();
+    await conn.execute("INSERT INTO task_archive(id,list_id,title,done,my_day,important,reminder_at,due_date,repeat_rule,note,created_at,updated_at,deleted_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?) ON DUPLICATE KEY UPDATE list_id=VALUES(list_id),title=VALUES(title),done=VALUES(done),my_day=VALUES(my_day),important=VALUES(important),reminder_at=VALUES(reminder_at),due_date=VALUES(due_date),repeat_rule=VALUES(repeat_rule),note=VALUES(note),created_at=VALUES(created_at),updated_at=VALUES(updated_at),deleted_at=VALUES(deleted_at)", [task.id, task.list_id, task.title, task.done, task.my_day, task.important, task.reminder_at, task.due_date, task.repeat_rule, task.note, task.created_at, task.updated_at, deletedAt]);
+    for (const step of steps) await conn.execute("INSERT INTO task_archive_steps(id,task_id,title,done,created_at,updated_at) VALUES(?,?,?,?,?,?) ON DUPLICATE KEY UPDATE title=VALUES(title),done=VALUES(done),updated_at=VALUES(updated_at)", [step.id, step.task_id, step.title, step.done, step.created_at, step.updated_at]);
     const [result] = await conn.execute("DELETE FROM tasks WHERE id=?", [req.params.id]);
     if (!result.affectedRows) return false;
-    await putDeletion(conn, "task", req.params.id, Date.now());
+    await putDeletion(conn, "task", req.params.id, deletedAt);
     return true;
   });
   if (!removed) return res.status(404).json({ error: "Task not found" });
@@ -326,6 +365,7 @@ app.post("/api/sync", route(async (req, res) => {
       const myDay = /^\d{4}-\d{2}-\d{2}$/.test(task.myDay || "") ? task.myDay : (task.today ? new Date().toISOString().slice(0, 10) : null);
       await conn.execute("INSERT INTO tasks(id,list_id,title,done,today,my_day,important,reminder_at,due_date,repeat_rule,note,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?) ON DUPLICATE KEY UPDATE list_id=IF(VALUES(updated_at)>updated_at,VALUES(list_id),list_id),title=IF(VALUES(updated_at)>updated_at,VALUES(title),title),done=IF(VALUES(updated_at)>updated_at,VALUES(done),done),today=IF(VALUES(updated_at)>updated_at,VALUES(today),today),my_day=IF(VALUES(updated_at)>updated_at,VALUES(my_day),my_day),important=IF(VALUES(updated_at)>updated_at,VALUES(important),important),reminder_sent_at=IF(VALUES(updated_at)>updated_at AND NOT (VALUES(reminder_at)<=>reminder_at),NULL,reminder_sent_at),reminder_at=IF(VALUES(updated_at)>updated_at,VALUES(reminder_at),reminder_at),due_date=IF(VALUES(updated_at)>updated_at,VALUES(due_date),due_date),repeat_rule=IF(VALUES(updated_at)>updated_at,VALUES(repeat_rule),repeat_rule),note=IF(VALUES(updated_at)>updated_at,VALUES(note),note),updated_at=GREATEST(updated_at,VALUES(updated_at))", [task.id, task.listId, String(task.title).trim(), !!task.done, !!myDay, myDay, !!task.important, task.reminderAt ? db.toMillis(task.reminderAt) : null, task.dueDate || null, task.repeatRule || null, task.note || "", db.toMillis(task.createdAt, updated), updated]);
       await conn.execute("DELETE FROM deletions WHERE entity_type='task' AND entity_id=? AND deleted_at<?", [task.id, updated]);
+      await conn.execute("DELETE FROM task_archive WHERE id=? AND deleted_at<?", [task.id, updated]);
       if (existing.length && !existing[0].done && task.done && task.repeatRule && updated > Number(existing[0].updatedAt)) {
         const nextId = crypto.randomUUID(), now = Date.now();
         await conn.execute("INSERT INTO tasks(id,list_id,title,done,today,my_day,important,reminder_at,due_date,repeat_rule,note,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)", [nextId, task.listId, String(task.title).trim(), false, false, null, !!task.important, null, nextOccurrence(task.dueDate, task.repeatRule), task.repeatRule, task.note || "", now, now]);
@@ -345,7 +385,7 @@ app.post("/api/sync", route(async (req, res) => {
     }
     return db.getState(conn);
   });
-  res.json(state);
+  res.json({ ...state, archivedTasks: await db.getDeletedTasks() });
 }));
 
 app.use("/api", (_req, res) => res.status(404).json({ error: "API endpoint not found" }));

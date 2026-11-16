@@ -39,7 +39,14 @@ async function getState(conn = pool) {
     deletedLists: deleted.filter((x) => x.entityType === "list").map((x) => ({ id: x.id, deletedAt: toISO(x.deletedAt) })),
     deletedTasks: deleted.filter((x) => x.entityType === "task").map((x) => ({ id: x.id, deletedAt: toISO(x.deletedAt) })),
     deletedSteps: deleted.filter((x) => x.entityType === "step").map((x) => ({ id: x.id, deletedAt: toISO(x.deletedAt) })),
+    archivedTasks: [],
   };
+}
+
+async function getDeletedTasks(conn = pool) {
+  const [rows] = await conn.query("SELECT id,list_id listId,title,done,my_day myDay,important,reminder_at reminderAt,due_date dueDate,repeat_rule repeatRule,note,created_at createdAt,updated_at updatedAt,deleted_at deletedAt FROM task_archive WHERE deleted_at > ? ORDER BY deleted_at DESC", [Date.now() - 24 * 60 * 60 * 1000]);
+  const [steps] = await conn.query("SELECT s.id,s.task_id taskId,s.title,s.done,s.created_at createdAt,s.updated_at updatedAt FROM task_archive_steps s JOIN task_archive a ON a.id=s.task_id WHERE a.deleted_at > ? ORDER BY s.created_at,s.id", [Date.now() - 24 * 60 * 60 * 1000]);
+  return rows.map((row) => ({ id: row.id, deletedAt: toISO(row.deletedAt), task: { ...row, done: !!row.done, important: !!row.important, reminderAt: row.reminderAt == null ? null : toISO(row.reminderAt), createdAt: toISO(row.createdAt), updatedAt: toISO(row.updatedAt), steps: steps.filter((step) => step.taskId === row.id).map((step) => ({ ...step, done: !!step.done, createdAt: toISO(step.createdAt), updatedAt: toISO(step.updatedAt) })) } }));
 }
 
 async function transaction(work) {
@@ -57,4 +64,4 @@ async function transaction(work) {
   }
 }
 
-module.exports = { pool, getState, transaction, toMillis, toISO };
+module.exports = { pool, getState, getDeletedTasks, transaction, toMillis, toISO };

@@ -64,6 +64,7 @@ BEGIN
     ALTER TABLE tasks ADD COLUMN reminder_sent_at BIGINT UNSIGNED NULL AFTER reminder_at;
   END IF;
 
+
   IF NOT EXISTS (
     SELECT 1 FROM information_schema.COLUMNS
     WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'tasks' AND COLUMN_NAME = 'due_date'
@@ -131,6 +132,34 @@ CREATE TABLE IF NOT EXISTS deletions (
   entity_id VARCHAR(36) NOT NULL,
   deleted_at BIGINT UNSIGNED NOT NULL,
   PRIMARY KEY (entity_type,entity_id), KEY deletions_deleted_at (deleted_at)
+) ENGINE=InnoDB;
+
+CREATE TABLE IF NOT EXISTS task_archive (
+  id VARCHAR(36) NOT NULL PRIMARY KEY,
+  list_id VARCHAR(36) NOT NULL,
+  title TEXT NOT NULL,
+  done BOOLEAN NOT NULL DEFAULT FALSE,
+  today BOOLEAN NOT NULL DEFAULT FALSE,
+  my_day DATE NULL,
+  important BOOLEAN NOT NULL DEFAULT FALSE,
+  reminder_at BIGINT UNSIGNED NULL,
+  due_date DATE NULL,
+  repeat_rule VARCHAR(32) NULL,
+  note TEXT NOT NULL,
+  created_at BIGINT UNSIGNED NOT NULL,
+  updated_at BIGINT UNSIGNED NOT NULL,
+  deleted_at BIGINT UNSIGNED NOT NULL,
+  KEY task_archive_deleted_at (deleted_at)
+) ENGINE=InnoDB;
+
+CREATE TABLE IF NOT EXISTS task_archive_steps (
+  id VARCHAR(36) NOT NULL PRIMARY KEY,
+  task_id VARCHAR(36) NOT NULL,
+  title VARCHAR(500) NOT NULL,
+  done BOOLEAN NOT NULL DEFAULT FALSE,
+  created_at BIGINT UNSIGNED NOT NULL,
+  updated_at BIGINT UNSIGNED NOT NULL,
+  KEY task_archive_steps_task_id (task_id)
 ) ENGINE=InnoDB;
 
 ALTER TABLE deletions MODIFY COLUMN entity_type ENUM('list','task','step') NOT NULL;

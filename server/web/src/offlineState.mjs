@@ -1,4 +1,5 @@
 const CACHE_KEY = "ledger-offline-state-v1";
+const OUTBOX_KEY = "ledger-offline-outbox-v1";
 
 export const emptyState = () => ({
   lists: [],
@@ -6,6 +7,7 @@ export const emptyState = () => ({
   deletedLists: [],
   deletedTasks: [],
   deletedSteps: [],
+  archivedTasks: [],
 });
 
 export function normalizeState(value = {}) {
@@ -15,6 +17,7 @@ export function normalizeState(value = {}) {
     deletedLists: Array.isArray(value.deletedLists) ? value.deletedLists : [],
     deletedTasks: Array.isArray(value.deletedTasks) ? value.deletedTasks : [],
     deletedSteps: Array.isArray(value.deletedSteps) ? value.deletedSteps : [],
+    ...(Array.isArray(value.archivedTasks) ? { archivedTasks: value.archivedTasks } : {}),
   };
 }
 
@@ -39,4 +42,16 @@ export function removeCachedState(storage = globalThis.localStorage) {
   try { storage.removeItem(CACHE_KEY); } catch (_error) {}
 }
 
-export { CACHE_KEY };
+export function readOutbox(storage = globalThis.localStorage) {
+  try { const value = storage.getItem(OUTBOX_KEY); return value ? JSON.parse(value) : null; } catch (_error) { return null; }
+}
+
+export function writeOutbox(state, storage = globalThis.localStorage) {
+  try { storage.setItem(OUTBOX_KEY, JSON.stringify(normalizeState(state))); } catch (_error) {}
+}
+
+export function removeOutbox(storage = globalThis.localStorage) {
+  try { storage.removeItem(OUTBOX_KEY); } catch (_error) {}
+}
+
+export { CACHE_KEY, OUTBOX_KEY };

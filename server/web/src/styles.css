@@ -191,3 +191,69 @@ nav { display: grid; gap: 3px; }
   .reminderActions .MuiButton-root { min-width: 0; padding-left: 10px; padding-right: 10px; font-size: 12px; }
 }
 @media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation-duration: .01ms !important; transition-duration: .01ms !important; } }
+
+/* Personalized, touch-friendly To Do inspired presentation */
+:root { --accent: #69aef5; --page-bg: #121a24; --panel: #19232f; --card: #202d3a; --line: #2a3948; }
+button, .taskRow, .stepRow, .detailCard { -webkit-tap-highlight-color: transparent; }
+button:focus:not(:focus-visible), .taskRow:focus:not(:focus-visible) { outline: none; }
+.appShell { background-color: var(--page-bg); background-image: linear-gradient(130deg, color-mix(in srgb, var(--page-bg) 78%, transparent), color-mix(in srgb, var(--page-bg) 94%, transparent)), var(--wallpaper), radial-gradient(circle at 60% -20%, color-mix(in srgb, var(--accent) 22%, #14171a) 0, var(--page-bg) 42%); background-position: center; background-size: cover; background-attachment: fixed; }
+.navItem.active { color: var(--accent); background: color-mix(in srgb, var(--accent) 16%, transparent); }
+.navItem.active:has(svg[data-testid="WbSunnyOutlinedIcon"]) { --accent: #f1b866; }
+.navItem.active:has(svg[data-testid="StarBorderIcon"]) { --accent: #f2c14e; }
+.navItem.active:has(svg[data-testid="CalendarMonthIcon"]) { --accent: #7bc8a4; }
+.navItem.active:has(svg[data-testid="TaskAltIcon"]) { --accent: #69aef5; }
+.taskArea[data-view="today"] .topbar h1 { color: #f1b866; }
+.taskArea[data-view="important"] .topbar h1 { color: #f2c14e; }
+.taskArea[data-view="planned"] .topbar h1 { color: #7bc8a4; }
+.taskArea[data-view="all"] .topbar h1 { color: #69aef5; }
+.sidebarExtras { margin-top: auto; padding-top: 18px; border-top: 1px solid var(--line); display: grid; gap: 3px; }
+.sidebar { display: flex; flex-direction: column; }
+.taskRow { transition: transform .22s cubic-bezier(.2,.8,.2,1), background .2s ease, border-color .2s ease, opacity .2s ease; }
+.taskRow:active { transform: scale(.985); }
+.taskRow.completed { animation: taskComplete .35s cubic-bezier(.2,.8,.2,1); }
+.stepRow { animation: stepIn .28s cubic-bezier(.2,.8,.2,1) both; transition: background .18s ease, opacity .2s ease, transform .2s ease; }
+.stepRow:has(.Mui-checked) { animation: stepDone .32s ease; }
+.addStep { border-top: 1px solid color-mix(in srgb, var(--line) 70%, transparent); transition: background .2s ease; }
+.addStep:focus-within { background: color-mix(in srgb, var(--accent) 8%, transparent); }
+.addStep input { min-height: 46px; }
+.MuiTouchRipple-root { color: var(--accent) !important; }
+.MuiButtonBase-root { -webkit-tap-highlight-color: transparent; }
+.MuiDialog-paper { animation: dialogIn .24s cubic-bezier(.16,1,.3,1); }
+.confirmDialog .MuiDialog-paper, .archiveDialog .MuiDialog-paper, .themeDialog .MuiDialog-paper { background: var(--panel); background-image: none; border: 1px solid var(--line); border-radius: 18px; }
+.archiveDialog .MuiDialogTitle-root { display: flex; align-items: baseline; gap: 12px; }.archiveDialog .MuiDialogTitle-root small { color: var(--muted); font-size: 11px; font-weight: 400; }
+.archiveList { display: grid; gap: 8px; }.archiveRow { display:flex; align-items:center; gap:12px; padding:11px 12px; border:1px solid var(--line); border-radius:12px; animation: taskIn .25s ease both; }.archiveRow > div { min-width:0; flex:1; }.archiveRow strong,.archiveRow small { display:block; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }.archiveRow small { color:var(--muted); margin-top:4px; font-size:11px; }.archiveEmpty { padding:32px 0; text-align:center; color:var(--muted); }
+.themeChoices { display:grid; grid-template-columns:repeat(auto-fit,minmax(92px,1fr)); gap:8px; margin:16px 0; }.themeChoices button { display:grid; justify-items:center; gap:8px; padding:12px 8px; color:inherit; background:var(--card); border:1px solid var(--line); border-radius:12px; }.themeChoices button.chosen { border-color:var(--accent); box-shadow:0 0 0 2px color-mix(in srgb,var(--accent) 18%,transparent); }.themeChoices i { width:22px; height:22px; border-radius:50%; }.themeChoices span { font-size:12px; }.themeLabel { display:grid; gap:8px; font-size:13px; margin:18px 0 12px; }.themeLabel input { width:100%; padding:12px; border:1px solid var(--line); border-radius:10px; color:inherit; background:var(--card); outline-color:var(--accent); }.themeCheck { display:flex; align-items:center; gap:9px; font-size:13px; margin:10px 0 18px; }.themeCheck input { accent-color:var(--accent); }.themeDialog small { color:var(--muted); line-height:2; }.themeDialog small button { border:0; background:none; color:var(--accent); cursor:pointer; padding:2px 4px; }
+@keyframes stepIn { from { opacity:0; transform:translateY(9px) scale(.985); } to { opacity:1; transform:none; } }
+@keyframes stepDone { 50% { background:color-mix(in srgb,var(--accent) 14%,transparent); } }
+@keyframes taskComplete { 45% { transform:scale(.985); background:color-mix(in srgb,var(--accent) 13%,var(--card)); } }
+@keyframes dialogIn { from { opacity:0; transform:translateY(10px) scale(.985); } to { opacity:1; transform:none; } }
+@media (max-width:800px) {
+  .appShell { background-image: linear-gradient(180deg, color-mix(in srgb,var(--page-bg) 68%,transparent), color-mix(in srgb,var(--page-bg) 93%,transparent)), var(--wallpaper), radial-gradient(ellipse 110% 45% at 95% -8%, color-mix(in srgb,var(--accent) 20%,transparent), transparent 70%), var(--page-bg); }
+  .appShell:not(.detailsOpen) .sidebar { background:var(--panel); border-right-color:var(--line); }
+  .topbar { min-height:96px; }
+  .topbar h1 { font-family: inherit; font-weight:700; color:#f2f5f8; letter-spacing:-.035em; }
+  .menuButton { color:var(--accent)!important; background:color-mix(in srgb,var(--accent) 12%,transparent)!important; border-color:color-mix(in srgb,var(--accent) 20%,transparent)!important; }
+  .taskRow { background:color-mix(in srgb,var(--panel) 92%,transparent); border-color:color-mix(in srgb,var(--accent) 8%,transparent); }
+  .taskRow:active { background:color-mix(in srgb,var(--accent) 11%,var(--panel)); }
+  .quickAdd { border-color:color-mix(in srgb,var(--accent) 18%,var(--line)); background:color-mix(in srgb,var(--panel) 94%,transparent); }
+  .detailPane { background:var(--page-bg); animation-name:detailSlideIn; }
+  .detailHeader { background:var(--page-bg); }
+  .detailPane .detailCard { border-color:var(--line); border-radius:14px; }
+  .detailFooter { padding-bottom:env(safe-area-inset-bottom); }
+  .scrim { backdrop-filter:blur(3px); }
+}
+@keyframes detailSlideIn { from { opacity:.75; transform:translate3d(100%,0,0); } to { opacity:1; transform:translate3d(0,0,0); } }
+@media (prefers-reduced-motion: reduce) { .taskRow.completed,.stepRow,.MuiDialog-paper { animation:none!important; } }
+
+/* Login, Jalali calendar, and reminder utility */
+.loginPage { background: radial-gradient(ellipse at 50% 8%, color-mix(in srgb,var(--accent) 24%,#15212c), var(--page-bg) 62%); }
+.loginCard { width:min(100%,420px); gap:15px; padding:clamp(24px,6vw,42px); border-color:color-mix(in srgb,var(--accent) 20%,var(--line)); background:color-mix(in srgb,var(--panel) 94%,transparent); backdrop-filter:blur(16px); }
+.loginBrand { display:flex; align-items:center; gap:12px; color:var(--muted); font-size:12px; letter-spacing:.08em; text-transform:uppercase; }.loginBrand .logoMark { margin:0; }
+.loginCard h1 { font-family:inherit; font-size:clamp(26px,7vw,32px); letter-spacing:-.04em; }.loginCard > p { margin:-7px 0 4px; line-height:1.55; }.loginHint { color:var(--muted); text-align:center; font-size:11px; }
+.loginCard .MuiButton-root { min-height:46px; text-transform:none; font-weight:650; }.loginCard .MuiAlert-root { border-radius:11px; }
+.calendarPanel { max-width:480px; margin:0 auto 18px; padding:12px 16px 6px; border:1px solid var(--line); border-radius:16px; background:color-mix(in srgb,var(--panel) 94%,transparent); box-shadow:0 12px 32px rgba(0,0,0,.12); animation:fadeIn .25s ease; }
+.calendarPanel > header { display:flex; align-items:center; gap:10px; padding:2px 3px 8px; }.calendarPanel > header > div { flex:1; }.calendarPanel strong,.calendarPanel small { display:block; }.calendarPanel strong { font-size:14px; }.calendarPanel small { margin-top:4px; color:var(--muted); font-size:11px; }.calendarPanel .MuiDateCalendar-root { margin:0 auto; max-height:310px; }.calendarPanel .MuiPickersCalendarHeader-root { padding-left:8px; padding-right:8px; }.calendarPanel .MuiPickersDay-root.Mui-selected { color:#101820; background:var(--accent); }.calendarPanel .MuiPickersDay-root:hover { background:color-mix(in srgb,var(--accent) 20%,transparent); }
+.taskArea[data-view="calendar"] .topbar h1 { color:var(--accent); }
+.notificationNav { align-items:flex-start; padding-top:9px; padding-bottom:9px; }.notificationNav > span { display:grid; gap:4px; white-space:normal; }.notificationNav small { color:var(--muted); font-size:10px; line-height:1.35; }.pushNote { padding:4px 12px 0 40px; color:var(--muted); font-size:10px; line-height:1.45; }
+.notificationHint { display:flex; align-items:flex-start; gap:9px; padding:11px 13px; color:var(--muted); font-size:11px; line-height:1.45; }.notificationHint svg { flex:0 0 auto; color:var(--accent); }.notificationHint.ready { color:color-mix(in srgb,var(--accent) 78%,white); }
+@media(max-width:800px) { .calendarPanel { padding:10px 9px 3px; }.calendarPanel .MuiDateCalendar-root { max-height:298px; }.calendarPanel .MuiDayCalendar-weekDayLabel,.calendarPanel .MuiPickersDay-root { width:36px; height:36px; }.pushNote { padding-left:12px; } }

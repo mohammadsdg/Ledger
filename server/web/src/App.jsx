@@ -3,7 +3,7 @@ import dayjs from "dayjs";
 import {
   Add, CalendarMonth, Check, ChevronLeft, ChevronRight, Close, DeleteOutline, EventRepeat,
   Logout, Menu, NotificationsNone, RadioButtonUnchecked, Star, StarBorder,
-  Sunny, TaskAlt, WbSunnyOutlined,
+  Sunny, TaskAlt, WbSunnyOutlined, Palette, Archive, Restore, LightMode, DarkMode, DeleteForever, NotificationsActive,
 } from "@mui/icons-material";
 import {
   Alert, Button, Checkbox, CircularProgress, Dialog, DialogActions, DialogContent,
@@ -12,10 +12,11 @@ import {
 } from "@mui/material";
 import { DateCalendar, TimeClock } from "@mui/x-date-pickers";
 import { isTaskInView } from "./taskViews.mjs";
-import { emptyState, normalizeState, readCachedState, removeCachedState, writeCachedState } from "./offlineState.mjs";
+import { emptyState, normalizeState, readCachedState, readOutbox, removeCachedState, removeOutbox, writeCachedState, writeOutbox } from "./offlineState.mjs";
 import { formatJalali, formatReminderTime, moment, setReminderPeriod, toStorageDate } from "./dates.mjs";
 
 const API = "/api";
+const AUTH_CACHE_KEY = "ledger-offline-auth-v1";
 const todayKey = () => dayjs().format("YYYY-MM-DD");
 const SYSTEM_IDS = new Set(["all"]);
 const makeId = () => crypto.randomUUID();
@@ -41,15 +42,17 @@ function Login({ onLogin }) {
       const response = await fetch(`${API}/auth/login`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ password }) });
       const body = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(body.error || "Could not sign in");
+      localStorage.setItem(AUTH_CACHE_KEY, "1");
       onLogin();
     } catch (err) { setError(err.message); }
     finally { setBusy(false); }
   }
   return <main className="loginPage">
     <form className="loginCard" onSubmit={submit}>
-      <div className="logoMark">§</div><h1>Ledger</h1><p>Make today feel lighter.</p>
-      <TextField autoFocus fullWidth type="password" label="Password" value={password} onChange={(e) => setPassword(e.target.value)} />
-      <Button fullWidth variant="contained" type="submit" disabled={busy || !password}>{busy ? <CircularProgress size={22} /> : "Enter"}</Button>
+      <div className="loginBrand"><div className="logoMark">§</div><span>Private task space</span></div><h1>Welcome back</h1><p>Sign in to open your Ledger and pick up where you left off.</p>
+      <TextField autoFocus fullWidth type="password" label="Ledger password" autoComplete="current-password" value={password} onChange={(e) => setPassword(e.target.value)} onKeyDown={(e) => { if (e.key === "Escape") setPassword(""); }} />
+      <Button fullWidth variant="contained" type="submit" disabled={busy || !password}>{busy ? <CircularProgress size={22} /> : "Sign in"}</Button>
+      <small className="loginHint">Your tasks stay on your private Ledger server.</small>
       {error && <Alert severity="error">{error}</Alert>}
     </form>
   </main>;
@@ -57,12 +60,13 @@ function Login({ onLogin }) {
 
 const views = [
   { id: "today", label: "My Day", icon: WbSunnyOutlined },
+  { id: "calendar", label: "Calendar", icon: CalendarMonth },
   { id: "important", label: "Important", icon: StarBorder },
   { id: "planned", label: "Planned", icon: CalendarMonth },
   { id: "all", label: "All tasks", icon: TaskAlt },
 ];
 
-function Sidebar({ view, onSelectView, lists, counts, onNewList, onDeleteList, mobileOpen, closeMobile, onLogout, onResizeStart }) {
+function Sidebar({ view, onSelectView, lists, counts, onNewList, onDeleteList, mobileOpen, closeMobile, onLogout, onResizeStart, onOpenArchive, onOpenTheme, archivedCount, notificationsReady, onEnableNotifications }) {
   return <>
     {mobileOpen && <button className="scrim" aria-label="Close navigation" onClick={closeMobile} />}
     <aside className={`sidebar ${mobileOpen ? "open" : ""}`}>
@@ -79,6 +83,7 @@ function Sidebar({ view, onSelectView, lists, counts, onNewList, onDeleteList, m
           <IconButton className="deleteList" size="small" onClick={() => onDeleteList(list)}><DeleteOutline fontSize="small" /></IconButton>
         </div>)}
       </nav>
+      <div className="sidebarExtras"><button className="navItem" onClick={onOpenArchive}><Archive fontSize="small"/><span>Recently deleted</span>{archivedCount > 0 && <b>{archivedCount}</b>}</button><button className="navItem" onClick={onOpenTheme}><Palette fontSize="small"/><span>Appearance</span></button><button className="navItem notificationNav" onClick={onEnableNotifications}><NotificationsActive fontSize="small"/><span>{notificationsReady ? "Notifications on" : "Enable notifications"}<small>{notificationsReady ? "Reminders are enabled" : "Turn on task reminders"}</small></span></button><small className="pushNote">Closed-app push needs internet access on the phone and the Ledger server online.</small></div>
       <div className="sidebarResizeHandle" aria-hidden="true" onPointerDown={onResizeStart} />
     </aside>
   </>;
@@ -271,6 +276,7 @@ function DetailPane({ task, notificationsReady, onEnableNotifications, onClose, 
     </section>
     <section className="detailCard scheduleCard">
       <ReminderControl taskId={task.id} value={task.reminderAt} notificationsReady={notificationsReady} onSave={setReminder} />
+      <div className={`notificationHint ${notificationsReady ? "ready" : ""}`}><NotificationsActive fontSize="small"/><span>{notificationsReady ? "Push reminders enabled" : "Enable notifications in navigation to receive reminders while Ledger is closed"}</span></div>
       <DueDateControl taskId={task.id} value={task.dueDate} onSave={(dueDate) => onPatch(task.id, { dueDate })} />
       <div className="pickerRow"><EventRepeat /><Select displayEmpty value={task.repeatRule || ""} onChange={(e) => onPatch(task.id, { repeatRule: e.target.value || null })}>
         <MenuItem value="">Does not repeat</MenuItem><MenuItem value="daily">Daily</MenuItem><MenuItem value="weekdays">Weekdays</MenuItem><MenuItem value="weekly">Weekly</MenuItem><MenuItem value="monthly">Monthly</MenuItem><MenuItem value="yearly">Yearly</MenuItem>
@@ -283,8 +289,9 @@ function DetailPane({ task, notificationsReady, onEnableNotifications, onClose, 
 
 function App() {
   const cachedAtStartup = useRef(readCachedState());
+  const pendingAtStartup = useRef(readOutbox());
   const [authenticated, setAuthenticated] = useState(null);
-  const [state, setState] = useState(() => cachedAtStartup.current || emptyState());
+  const [state, setState] = useState(() => pendingAtStartup.current || cachedAtStartup.current || emptyState());
   const stateRef = useRef(state);
   const stateVersion = useRef(0);
   const [view, setView] = useState("today");
@@ -295,11 +302,16 @@ function App() {
   const [newListOpen, setNewListOpen] = useState(false);
   const [newListName, setNewListName] = useState("");
   const [currentDay, setCurrentDay] = useState(todayKey());
+  const [calendarDate, setCalendarDate] = useState(() => moment());
   const [notificationsReady, setNotificationsReady] = useState(false);
   const [completedOpen, setCompletedOpen] = useState(false);
   const [syncPending, setSyncPending] = useState(false);
   const [online, setOnline] = useState(navigator.onLine);
   const swipeStart = useRef(null);
+  const [archiveOpen, setArchiveOpen] = useState(false);
+  const [themeOpen, setThemeOpen] = useState(false);
+  const [deleteConfirm, setDeleteConfirm] = useState(null);
+  const [theme, setTheme] = useState(() => { try { return JSON.parse(localStorage.getItem("ledger-theme")) || {}; } catch { return {}; } });
   const [sidebarWidth, setSidebarWidth] = useState(() => Math.min(380, Math.max(190, Number(localStorage.getItem("ledger-sidebar-width")) || 250)));
 
   const fail = (error) => { if (error.unauthorized) setAuthenticated(false); else setError(error.message); };
@@ -309,7 +321,7 @@ function App() {
     stateVersion.current += 1;
     setState(next);
     writeCachedState(next);
-    if (dirty) setSyncPending(true);
+    if (dirty) { setSyncPending(true); writeOutbox(next); }
     return next;
   }
   async function load() {
@@ -317,7 +329,7 @@ function App() {
     try {
       const next = await request("/sync", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(stateRef.current) });
       const changedWhileSyncing = version !== stateVersion.current;
-      if (!changedWhileSyncing) commitState(next, false);
+      if (!changedWhileSyncing) { commitState(next, false); removeOutbox(); }
       setSyncPending(changedWhileSyncing);
       setOnline(true);
       setAuthenticated(true);
@@ -331,6 +343,28 @@ function App() {
       else if (!disconnected || (!stateRef.current.lists.length && !stateRef.current.tasks.length)) fail(error);
     }
   }
+  async function refreshRemote() {
+    try {
+      const remote = await request("/state");
+      const local = stateRef.current;
+      const dirty = readOutbox();
+      if (dirty) {
+        await load();
+        return;
+      }
+      const next = normalizeState({ ...remote, archivedTasks: remote.archivedTasks || local.archivedTasks || [] });
+      stateRef.current = next;
+      setState(next);
+      writeCachedState(next);
+      setOnline(true);
+      setSyncPending(false);
+    } catch (error) {
+      const disconnected = error instanceof TypeError || !navigator.onLine;
+      setOnline(!disconnected);
+      if (error.unauthorized) fail(error);
+    }
+  }
+  const backHandler = useRef(null);
   useEffect(() => {
     if (!history.state?.ledger) {
       const taskId = new URLSearchParams(location.search).get("task");
@@ -340,35 +374,47 @@ function App() {
     }
     const onPopState = (event) => {
       const entry = event.state;
-      if (!entry?.ledger) return;
+      if (!entry?.ledger) {
+        setView("today"); setSelectedId(null); setMobileOpen(false); setNewListOpen(false); setArchiveOpen(false); setThemeOpen(false); setDeleteConfirm(null);
+        return;
+      }
       setView(entry.view || "today");
-      setSelectedId(["task", "reminder", "due-date"].includes(entry.layer) ? entry.taskId : null);
+      setSelectedId(["task", "reminder", "due-date", "delete-confirm"].includes(entry.layer) ? entry.taskId : null);
       setMobileOpen(entry.layer === "sidebar");
       setNewListOpen(entry.layer === "new-list");
+      setArchiveOpen(entry.layer === "archive");
+      setThemeOpen(entry.layer === "theme");
+      setDeleteConfirm(entry.layer === "delete-confirm" ? entry.taskId : null);
     };
     addEventListener("popstate", onPopState);
     return () => removeEventListener("popstate", onPopState);
   }, []);
-  useEffect(() => { fetch(`${API}/auth/status`).then((r) => { if (!r.ok) throw new Error(`Request failed (${r.status})`); return r.json(); }).then((x) => x.authenticated ? load() : setAuthenticated(false)).catch(() => cachedAtStartup.current ? (setAuthenticated(true), setOnline(false)) : setAuthenticated(false)); }, []);
+  useEffect(() => { fetch(`${API}/auth/status`).then((r) => { if (!r.ok) throw new Error(`Request failed (${r.status})`); return r.json(); }).then((x) => { if (x.authenticated) { localStorage.setItem(AUTH_CACHE_KEY, "1"); load(); } else setAuthenticated(false); }).catch(() => {
+    if (localStorage.getItem(AUTH_CACHE_KEY) === "1" && (pendingAtStartup.current || cachedAtStartup.current)) { setAuthenticated(true); setOnline(false); }
+    else setAuthenticated(false);
+  }); }, []);
   useEffect(() => {
-    const refresh = () => { if (!document.hidden && authenticated) load(); };
+    const refresh = () => { if (!document.hidden && authenticated) refreshRemote(); };
+    const poll = setInterval(() => { if (navigator.onLine && !document.hidden && authenticated) refreshRemote(); }, 5000);
     const reconnect = () => { setOnline(true); if (authenticated) load(); };
     const disconnect = () => setOnline(false);
     document.addEventListener("visibilitychange", refresh);
     addEventListener("online", reconnect);
     addEventListener("offline", disconnect);
-    return () => { document.removeEventListener("visibilitychange", refresh); removeEventListener("online", reconnect); removeEventListener("offline", disconnect); };
+    return () => { clearInterval(poll); document.removeEventListener("visibilitychange", refresh); removeEventListener("online", reconnect); removeEventListener("offline", disconnect); };
   }, [authenticated]);
   useEffect(() => { const timer = setInterval(() => setCurrentDay(todayKey()), 60_000); return () => clearInterval(timer); }, []);
-  useEffect(() => { if (authenticated && "Notification" in window && Notification.permission === "granted") enableNotifications().catch(() => {}); }, [authenticated]);
+  useEffect(() => { if (authenticated && "Notification" in window && Notification.permission === "granted") enableNotifications().then(() => setNotificationsReady(true)).catch(() => setNotificationsReady(false)); }, [authenticated]);
   useEffect(() => setCompletedOpen(false), [view]);
 
   const selectedTask = state.tasks.find((task) => task.id === selectedId);
-  const visibleTasks = useMemo(() => state.tasks.filter((task) => isTaskInView(task, view, currentDay)), [state.tasks, view, currentDay]);
+  const archivedTasks = useMemo(() => (state.archivedTasks?.length ? state.archivedTasks : state.deletedTasks.map((item) => ({ ...item, task: state.tasks.find((task) => task.id === item.id) || item.task }))).filter((item) => item.task && Date.now() - new Date(item.deletedAt).getTime() < 24 * 60 * 60 * 1000), [state]);
+  const selectedDateKey = toStorageDate(calendarDate);
+  const visibleTasks = useMemo(() => view === "calendar" ? state.tasks.filter((task) => task.dueDate === selectedDateKey || task.myDay === selectedDateKey || (task.reminderAt && toStorageDate(moment(task.reminderAt)) === selectedDateKey)) : state.tasks.filter((task) => isTaskInView(task, view, currentDay)), [state.tasks, view, currentDay, selectedDateKey]);
   const activeTasks = useMemo(() => visibleTasks.filter((task) => !task.done), [visibleTasks]);
   const completedTasks = useMemo(() => visibleTasks.filter((task) => task.done), [visibleTasks]);
-  const counts = useMemo(() => Object.fromEntries([...views.map((x) => x.id), ...state.lists.map((x) => x.id)].map((id) => [id, state.tasks.filter((task) => !task.done && isTaskInView(task, id, currentDay)).length])), [state, currentDay]);
-  const title = views.find((x) => x.id === view)?.label || state.lists.find((x) => x.id === view)?.name || "Tasks";
+  const counts = useMemo(() => Object.fromEntries([...views.map((x) => x.id), ...state.lists.map((x) => x.id)].map((id) => [id, state.tasks.filter((task) => !task.done && (id === "calendar" ? task.dueDate === selectedDateKey || task.myDay === selectedDateKey : isTaskInView(task, id, currentDay))).length])), [state, currentDay, selectedDateKey]);
+  const title = view === "calendar" ? formatJalali(calendarDate, "dddd, jD jMMMM") : views.find((x) => x.id === view)?.label || state.lists.find((x) => x.id === view)?.name || "Tasks";
 
   async function enableNotifications() {
     if (!("serviceWorker" in navigator) || !("PushManager" in window) || !("Notification" in window)) throw new Error("Push notifications are not supported on this device.");
@@ -381,6 +427,13 @@ function App() {
     await request("/push/subscribe", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(subscription) });
     setNotificationsReady(true);
     return true;
+  }
+  async function requestNotifications() {
+    try { await enableNotifications(); }
+    catch (error) {
+      if (Notification.permission === "denied") fail(new Error("Notifications are blocked by your browser. Allow them in site settings, then try again."));
+      else fail(error);
+    }
   }
   async function disableNotifications() {
     if (!("serviceWorker" in navigator) || !("PushManager" in window)) return;
@@ -397,19 +450,36 @@ function App() {
   }
   async function addTask(event) {
     event.preventDefault(); const title = addTitle.trim(); if (!title) return;
-    const listId = ["today", "important", "planned", "all"].includes(view) ? "all" : view;
+    const listId = ["today", "important", "planned", "calendar", "all"].includes(view) ? "all" : view;
     const timestamp = nowISO();
-    const task = { id: makeId(), listId, title, done: false, myDay: view === "today" ? currentDay : null, important: view === "important", reminderAt: null, dueDate: view === "planned" ? currentDay : null, repeatRule: null, note: "", steps: [], createdAt: timestamp, updatedAt: timestamp };
+    const task = { id: makeId(), listId, title, done: false, myDay: view === "today" ? currentDay : view === "calendar" ? selectedDateKey : null, important: view === "important", reminderAt: null, dueDate: view === "planned" ? currentDay : view === "calendar" ? selectedDateKey : null, repeatRule: null, note: "", steps: [], createdAt: timestamp, updatedAt: timestamp };
     commitState((old) => ({ ...old, tasks: [...old.tasks, task] }));
     setAddTitle("");
     if (navigator.onLine) await load();
   }
   async function deleteTask(id) {
     const deletedAt = nowISO();
-    commitState((old) => ({ ...old, tasks: old.tasks.filter((x) => x.id !== id), deletedTasks: [...old.deletedTasks.filter((x) => x.id !== id), { id, deletedAt }] }));
+    const task = stateRef.current.tasks.find((x) => x.id === id);
+    if (!task) return;
+    commitState((old) => ({ ...old, tasks: old.tasks.filter((x) => x.id !== id), deletedTasks: [...old.deletedTasks.filter((x) => x.id !== id), { id, deletedAt, task }] }));
     closeSelectedTask();
     if (navigator.onLine) await load();
   }
+  async function restoreTask(item) {
+    if (navigator.onLine) {
+      try {
+        const restoredState = await request(`/archive/${encodeURIComponent(item.id)}/restore`, { method: "POST" });
+        if (restoredState?.tasks) {
+          commitState({ ...restoredState, archivedTasks: (stateRef.current.archivedTasks || []).filter((x) => x.id !== item.id) }, false);
+          return;
+        }
+      } catch (error) { fail(error); return; }
+    }
+    const restored = { ...item.task, updatedAt: nowISO() };
+    commitState((old) => ({ ...old, tasks: [...old.tasks.filter((task) => task.id !== item.id), restored], deletedTasks: old.deletedTasks.filter((x) => x.id !== item.id), archivedTasks: old.archivedTasks.filter((x) => x.id !== item.id), deletedSteps: old.deletedSteps.filter((step) => !item.task.steps?.some((taskStep) => taskStep.id === step.id)) }));
+    if (navigator.onLine) await load();
+  }
+  function changeTheme(next) { const value = { ...theme, ...next }; setTheme(value); localStorage.setItem("ledger-theme", JSON.stringify(value)); }
   async function addStep(taskId, title) {
     const timestamp = nowISO();
     const step = { id: makeId(), taskId, title: title.trim(), done: false, createdAt: timestamp, updatedAt: timestamp };
@@ -441,7 +511,7 @@ function App() {
     if (view === list.id) { history.replaceState({ ledger: true, view: "today" }, "", location.pathname); setView("today"); }
     if (navigator.onLine) await load();
   }
-  async function logout() { try { await disableNotifications(); } catch (_error) {} await fetch(`${API}/auth/logout`, { method: "POST" }).catch(() => {}); commitState(emptyState(), false); removeCachedState(); history.replaceState({ ledger: true, view: "today" }, "", location.pathname); setView("today"); setSelectedId(null); setMobileOpen(false); setNewListOpen(false); setAuthenticated(false); }
+  async function logout() { try { await disableNotifications(); } catch (_error) {} await fetch(`${API}/auth/logout`, { method: "POST" }).catch(() => {}); commitState(emptyState(), false); removeCachedState(); removeOutbox(); localStorage.removeItem(AUTH_CACHE_KEY); history.replaceState({ ledger: true, view: "today" }, "", location.pathname); setView("today"); setSelectedId(null); setMobileOpen(false); setNewListOpen(false); setAuthenticated(false); }
   function navigateView(nextView) {
     const entry = { ledger: true, view: nextView };
     if (history.state?.layer === "sidebar") history.replaceState(entry, "", location.pathname);
@@ -466,6 +536,8 @@ function App() {
   }
   function openNewList() { history.pushState({ ledger: true, view, layer: "new-list" }, "", location.pathname); setNewListOpen(true); }
   function closeNewList() { if (history.state?.layer === "new-list") history.back(); else setNewListOpen(false); }
+  function openLayer(layer, setter) { history.pushState({ ledger: true, view, layer }, "", location.pathname); setter(true); }
+  function closeLayer(layer, setter) { if (history.state?.layer === layer) history.back(); else setter(false); }
   function startSidebarResize(event) {
     if (innerWidth <= 800) return;
     event.preventDefault();
@@ -491,11 +563,12 @@ function App() {
 
   if (authenticated === null) return <div className="centerLoader"><CircularProgress /></div>;
   if (!authenticated) return <Login onLogin={load} />;
-  return <div className={`appShell ${selectedTask ? "detailsOpen" : ""}`} style={{ "--sidebar-width": `${sidebarWidth}px` }}>
-    <Sidebar view={view} onSelectView={navigateView} lists={state.lists} counts={counts} onNewList={openNewList} onDeleteList={deleteList} mobileOpen={mobileOpen} closeMobile={closeMobileNav} onLogout={logout} onResizeStart={startSidebarResize} />
-    <main className="taskArea" onPointerDown={startMobileSwipe} onPointerUp={finishMobileSwipe} onPointerCancel={() => { swipeStart.current = null; }}>
+  return <div className={`appShell ${selectedTask ? "detailsOpen" : ""}`} style={{ "--sidebar-width": `${sidebarWidth}px`, "--accent": theme.accent || "#5fb494", "--page-bg": theme.bg || "#14171a", "--wallpaper": theme.image ? `url("${theme.image.replace(/["\\]/g, "")}")` : "none" }}>
+    <Sidebar view={view} onSelectView={navigateView} lists={state.lists} counts={counts} onNewList={openNewList} onDeleteList={deleteList} mobileOpen={mobileOpen} closeMobile={closeMobileNav} onLogout={logout} onResizeStart={startSidebarResize} onOpenArchive={() => openLayer("archive", setArchiveOpen)} onOpenTheme={() => openLayer("theme", setThemeOpen)} archivedCount={archivedTasks.length} notificationsReady={notificationsReady} onEnableNotifications={requestNotifications} />
+    <main className="taskArea" data-view={view} onPointerDown={startMobileSwipe} onPointerUp={finishMobileSwipe} onPointerCancel={() => { swipeStart.current = null; }}>
       <header className="topbar"><IconButton className="menuButton" onClick={openMobileNav}><Menu /></IconButton><div><h1>{title}</h1><span className="dateLine"><span>{formatJalali(moment())}</span><span className={`syncBadge ${!online ? "offline" : syncPending ? "syncing" : "idle"}`} role="status" aria-label={!online ? "Offline; changes will sync when connected" : syncPending ? "Syncing changes" : "All changes synced"} title={!online ? "Offline — saved on this device" : syncPending ? "Syncing" : "Synced"}><i /></span></span></div></header>
       <div className="taskScroller">
+        {view === "calendar" && <section className="calendarPanel"><header><div><strong>Plan by Persian date</strong><small>Choose a day to see and add tasks for it.</small></div><Button size="small" onClick={() => setCalendarDate(moment())}>Today</Button></header><DateCalendar value={calendarDate} onChange={(date) => date && setCalendarDate(date)} sx={{ width: "100%", maxWidth: 380 }} /></section>}
         <form className="quickAdd" onSubmit={addTask}><Add /><input aria-label={`Add a task to ${title}`} placeholder="Add a task" value={addTitle} onChange={(e) => setAddTitle(e.target.value)} /><button type="submit">Add</button></form>
         <section className="taskList">
           {activeTasks.map((task) => <TaskRow key={task.id} task={task} currentDay={currentDay} listName={state.lists.find((x) => x.id === task.listId)?.name} onOpen={openTask} onToggleDone={(x) => patchTask(x.id, { done: !x.done })} onToggleImportant={(x) => patchTask(x.id, { important: !x.important })} />)}
@@ -511,7 +584,10 @@ function App() {
         </section>
       </div>
     </main>
-    <DetailPane task={selectedTask} notificationsReady={notificationsReady} onEnableNotifications={async () => { try { return await enableNotifications(); } catch (error) { fail(error); return false; } }} onClose={closeSelectedTask} onPatch={patchTask} onDelete={deleteTask} onAddStep={addStep} onPatchStep={patchStep} onDeleteStep={deleteStep} />
+    <DetailPane task={selectedTask} notificationsReady={notificationsReady} onEnableNotifications={async () => { try { return await enableNotifications(); } catch (error) { fail(error); return false; } }} onClose={closeSelectedTask} onPatch={patchTask} onDelete={(id) => { history.pushState({ ledger: true, view, layer: "delete-confirm", taskId: id }, "", location.pathname); setDeleteConfirm(id); }} onAddStep={addStep} onPatchStep={patchStep} onDeleteStep={deleteStep} />
+    <Dialog open={!!deleteConfirm} onClose={() => closeLayer("delete-confirm", () => setDeleteConfirm(null))} fullWidth maxWidth="xs" className="confirmDialog"><DialogTitle>Delete this task?</DialogTitle><DialogContent><p>It will stay in Recently deleted for 24 hours, and you can restore it during that time.</p></DialogContent><DialogActions><Button onClick={() => closeLayer("delete-confirm", () => setDeleteConfirm(null))}>Cancel</Button><Button color="error" variant="contained" onClick={() => { const id = deleteConfirm; closeLayer("delete-confirm", () => setDeleteConfirm(null)); deleteTask(id); }}>Delete task</Button></DialogActions></Dialog>
+    <Dialog open={archiveOpen} onClose={() => closeLayer("archive", setArchiveOpen)} fullWidth maxWidth="sm" className="archiveDialog"><DialogTitle>Recently deleted <small>Auto removed after 24 hours</small></DialogTitle><DialogContent dividers>{archivedTasks.length ? <div className="archiveList">{archivedTasks.map((item) => <div className="archiveRow" key={item.id}><div><strong>{item.task.title}</strong><small>Deleted {dayjs(item.deletedAt).format("MMM D, h:mm A")}</small></div><Button startIcon={<Restore />} onClick={() => restoreTask(item)}>Restore</Button></div>)}</div> : <div className="archiveEmpty">No deleted tasks</div>}</DialogContent><DialogActions><Button onClick={() => closeLayer("archive", setArchiveOpen)}>Done</Button></DialogActions></Dialog>
+    <Dialog open={themeOpen} onClose={() => closeLayer("theme", setThemeOpen)} fullWidth maxWidth="sm" className="themeDialog"><DialogTitle>Appearance</DialogTitle><DialogContent dividers><p>Choose a color mood and background for Ledger.</p><div className="themeChoices">{[{name:"Ocean",accent:"#69aef5",bg:"#121a24"},{name:"Mint",accent:"#5fb494",bg:"#141b19"},{name:"Violet",accent:"#b49af5",bg:"#191724"},{name:"Rose",accent:"#ef8fa8",bg:"#20171b"},{name:"Amber",accent:"#e5ae62",bg:"#201d18"}].map((choice)=><button key={choice.name} className={theme.name===choice.name?"chosen":""} onClick={()=>changeTheme({name:choice.name,accent:choice.accent,bg:choice.bg})}><i style={{background:choice.accent}}/><span>{choice.name}</span></button>)}</div><label className="themeLabel">Background image URL<input placeholder="Paste an Unsplash image URL" value={theme.image||""} onChange={(e)=>changeTheme({image:e.target.value})}/></label><label className="themeCheck"><input type="checkbox" checked={!!theme.desktop} onChange={(e)=>changeTheme({desktop:e.target.checked})}/> Apply this background on desktop too</label><small>Unsplash picks: <button type="button" onClick={()=>changeTheme({image:"https://images.unsplash.com/photo-1470770841072-f978cf4d019e?auto=format&fit=crop&w=1600&q=85"})}>Mountain lake</button> <button type="button" onClick={()=>changeTheme({image:"https://images.unsplash.com/photo-1470252649378-9c29740c9fa8?auto=format&fit=crop&w=1600&q=85"})}>Golden sunrise</button> <button type="button" onClick={()=>changeTheme({image:"https://images.unsplash.com/photo-1518837695005-2083093ee35b?auto=format&fit=crop&w=1600&q=85"})}>Ocean</button></small></DialogContent><DialogActions><Button onClick={()=>changeTheme({image:""})}>Clear background</Button><Button variant="contained" onClick={()=>closeLayer("theme", setThemeOpen)}>Done</Button></DialogActions></Dialog>
     <Dialog open={newListOpen} onClose={closeNewList} fullWidth maxWidth="xs"><DialogTitle>New list</DialogTitle><DialogContent><TextField autoFocus fullWidth margin="dense" label="List name" value={newListName} onChange={(e) => setNewListName(e.target.value)} onKeyDown={(e) => e.key === "Enter" && createList()} /></DialogContent><DialogActions><Button onClick={closeNewList}>Cancel</Button><Button variant="contained" onClick={createList}>Create</Button></DialogActions></Dialog>
     <Snackbar open={!!error} autoHideDuration={5000} onClose={() => setError("")}><Alert severity="error" onClose={() => setError("")}>{error}</Alert></Snackbar>
   </div>;
