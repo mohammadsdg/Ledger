@@ -1,0 +1,11 @@
+{
+  "expo": {
+    "name": "Ledger",
+    "slug": "ledger-mobile",
+    "version": "0.1.0",
+    "orientation": "portrait",
+    "userInterfaceStyle": "dark",
+    "android": { "package": "com.ledger.tasks", "permissions": ["SCHEDULE_EXACT_ALARM", "RECEIVE_BOOT_COMPLETED"] },
+    "plugins": ["expo-secure-store", "expo-notifications"]
+  }
+}

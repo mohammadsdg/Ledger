@@ -28,7 +28,7 @@ Ledger gives you a calm task space that you run yourself. Use it in a browser, i
 | --- | --- | --- |
 | Jalali calendar and date-based tasks | Steps, reminders, repeats, and notes | Self-hosted MySQL or MariaDB |
 | My Day, Important, Planned, and custom lists | Installable mobile and desktop PWA | Offline edits with automatic sync |
-| Theme colors and optional backgrounds | Web Push reminders on supported browsers | CLI cache for quick capture |
+| Calm green interface | Web Push reminders on supported browsers | CLI cache for quick capture |
 
 ## Features
 
@@ -40,7 +40,7 @@ Ledger gives you a calm task space that you run yourself. Use it in a browser, i
 - **Web Push reminders.** Supported Android and desktop browsers can receive reminders while Ledger is closed, provided the phone and your Ledger server can reach the internet.
 - **Recently deleted.** Removed tasks stay recoverable for 24 hours.
 - **A small CLI.** Add, complete, edit, and sync tasks from a terminal.
-- **Your own look.** Choose a color theme and an optional background image.
+- **Native Android app.** The React Native client in [mobile/](mobile/README.md) supports offline tasks and local reminders.
 
 > **Push delivery note:** the phone must have internet access and the Ledger server must be running when the reminder is due. A fully offline phone cannot receive a push notification until it reconnects.
 

@@ -1,0 +1,16 @@
+{
+  "name": "ledger-mobile",
+  "version": "0.1.0",
+  "private": true,
+  "main": "node_modules/expo/AppEntry.js",
+  "scripts": { "start": "expo start", "android": "expo run:android" },
+  "dependencies": {
+    "expo": "~53.0.0",
+    "expo-crypto": "~14.1.5",
+    "expo-notifications": "~0.31.4",
+    "expo-secure-store": "~14.2.3",
+    "@react-native-async-storage/async-storage": "2.1.2",
+    "react": "19.0.0",
+    "react-native": "0.79.6"
+  }
+}
