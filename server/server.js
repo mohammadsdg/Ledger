@@ -36,11 +36,10 @@ async function configurePush() {
 
 async function deliverDueReminders() {
   if (!pushReady) return;
-  const [tasks] = await db.pool.execute("SELECT id,title,reminder_at reminderAt,reminder_subscription_id subscriptionId FROM tasks WHERE done=FALSE AND reminder_at IS NOT NULL AND reminder_at<=? AND reminder_sent_at IS NULL ORDER BY reminder_at LIMIT 100", [Date.now()]);
+  const [subscriptions] = await db.pool.query("SELECT id,endpoint,p256dh,auth FROM push_subscriptions");
+  if (!subscriptions.length) return;
+  const [tasks] = await db.pool.execute("SELECT id,title,reminder_at reminderAt FROM tasks WHERE done=FALSE AND reminder_at IS NOT NULL AND reminder_at<=? AND reminder_sent_at IS NULL ORDER BY reminder_at LIMIT 100", [Date.now()]);
   for (const task of tasks) {
-    if (!task.subscriptionId) continue;
-    const [subscriptions] = await db.pool.execute("SELECT id,endpoint,p256dh,auth FROM push_subscriptions WHERE id=?", [task.subscriptionId]);
-    if (!subscriptions.length) continue;
     let delivered = false;
     const payload = JSON.stringify({ title: task.title, body: "Ledger reminder", taskId: task.id, url: `/?task=${encodeURIComponent(task.id)}` });
     for (const subscription of subscriptions) {
