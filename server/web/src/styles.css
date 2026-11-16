@@ -257,3 +257,16 @@ button:focus:not(:focus-visible), .taskRow:focus:not(:focus-visible) { outline: 
 .notificationNav { align-items:flex-start; padding-top:9px; padding-bottom:9px; }.notificationNav > span { display:grid; gap:4px; white-space:normal; }.notificationNav small { color:var(--muted); font-size:10px; line-height:1.35; }.pushNote { padding:4px 12px 0 40px; color:var(--muted); font-size:10px; line-height:1.45; }
 .notificationHint { display:flex; align-items:flex-start; gap:9px; padding:11px 13px; color:var(--muted); font-size:11px; line-height:1.45; }.notificationHint svg { flex:0 0 auto; color:var(--accent); }.notificationHint.ready { color:color-mix(in srgb,var(--accent) 78%,white); }
 @media(max-width:800px) { .calendarPanel { padding:10px 9px 3px; }.calendarPanel .MuiDateCalendar-root { max-height:298px; }.calendarPanel .MuiDayCalendar-weekDayLabel,.calendarPanel .MuiPickersDay-root { width:36px; height:36px; }.pushNote { padding-left:12px; } }
+/* A quiet green workspace and reachable navigation. */
+:root { --panel:#1b1f22; --card:#20252a; --line:#2b3034; --accent:#5fb494; --page-bg:#14171a; }
+.taskArea[data-view] .topbar h1 { color:#e9e7e0; }
+.mobileNavTrigger { display:none; }
+@media (max-width:800px) {
+ .menuButton { display:none!important; }
+ .mobileNavTrigger { position:fixed; display:flex; align-items:center; gap:8px; bottom:calc(16px + env(safe-area-inset-bottom)); left:16px; z-index:18; border:1px solid #4a8069; border-radius:28px; padding:11px 18px; background:#294b3d; color:#e8f5ee; box-shadow:0 8px 24px #0007; }
+ .detailsOpen .mobileNavTrigger { display:none; }
+ .sidebar { width:100%; max-width:none; padding-top:max(20px,env(safe-area-inset-top)); }
+ .sidebar.open { box-shadow:none; }
+ .topbar { padding-top:max(25px,env(safe-area-inset-top)); }
+ .taskScroller { padding-bottom:calc(95px + env(safe-area-inset-bottom)); }
+}
