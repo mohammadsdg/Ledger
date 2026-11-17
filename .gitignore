@@ -18,3 +18,11 @@ Thumbs.db
 # editor junk
 .vscode/
 .idea/
+
+# Native generated builds and local caches
+mobile/.expo/
+mobile/dist/
+mobile/android/
+mobile/ios/
+backups/
+mobile/*.apk

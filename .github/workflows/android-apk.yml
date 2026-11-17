@@ -1,0 +1,46 @@
+name: Android APK
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths: ['mobile/**', '.github/workflows/android-apk.yml']
+permissions:
+  contents: write
+concurrency:
+  group: android-apk
+  cancel-in-progress: true
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    defaults:
+      run:
+        working-directory: mobile
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: mobile/package-lock.json
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: android-actions/setup-android@v3
+      - run: npm ci
+      - run: npx expo prebuild --platform android --no-install
+        env:
+          CI: '1'
+      - run: chmod +x android/gradlew && cd android && ./gradlew app:assembleRelease --no-daemon -PreactNativeArchitectures=arm64-v8a,armeabi-v7a
+      - run: cp android/app/build/outputs/apk/release/app-release.apk ledger-preview.apk
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ledger-android-preview
+          path: mobile/ledger-preview.apk
+      - name: Publish preview APK
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release view android-preview >/dev/null 2>&1 || gh release create android-preview --prerelease --title "Ledger Android preview" --notes "Native Android preview. Uses the Expo development signing key; for evaluation, not a production-signed release. Connect with your HTTPS Ledger server URL and website password."
+          gh release upload android-preview ledger-preview.apk --clobber
