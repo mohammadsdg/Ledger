@@ -214,3 +214,10 @@ nav { display: grid; gap: 3px; }
  .topbar { gap:6px; }
  .backgroundActions .MuiIconButton-root { min-height:44px; min-width:44px; }
 }
+.taskArea { container-type:inline-size; }
+@container (min-width:700px) {
+ .calendarView { display:grid; grid-template-columns:360px minmax(0,1fr); grid-template-rows:52px auto; align-content:start; column-gap:24px; row-gap:16px; }
+ .calendarView .calendarPanel { grid-column:1; grid-row:1 / span 2; margin:0; align-self:start; }
+ .calendarView .quickAdd { grid-column:2; grid-row:1; margin:0; }
+ .calendarView .taskList { grid-column:2; grid-row:2; align-content:start; }
+}
