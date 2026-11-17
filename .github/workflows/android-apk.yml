@@ -27,7 +27,8 @@ jobs:
         with:
           distribution: temurin
           java-version: '17'
-      - uses: android-actions/setup-android@v3
+      - name: Use runner Android SDK
+        run: test -d "$ANDROID_HOME" && ls "$ANDROID_HOME/platforms"
       - run: npm ci
       - run: npx expo prebuild --platform android --no-install
         env:
