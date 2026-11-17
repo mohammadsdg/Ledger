@@ -1,50 +1,511 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { Alert, AppState, BackHandler, FlatList, KeyboardAvoidingView, Platform, Pressable, SafeAreaView, StatusBar, StyleSheet, Text, TextInput, View } from 'react-native';
+import { Alert, AppState, BackHandler, FlatList, KeyboardAvoidingView, Platform, Pressable, SafeAreaView, ScrollView, StatusBar, StyleSheet, Text, TextInput, View } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as SecureStore from 'expo-secure-store';
 import * as Crypto from 'expo-crypto';
 import * as Notifications from 'expo-notifications';
-
-const EMPTY = { lists: [], tasks: [], deletedTasks: [], deletedSteps: [], deletedLists: [] };
-const DAY = () => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`; };
+const EMPTY = {
+  lists: [],
+  tasks: [],
+  deletedTasks: [],
+  deletedSteps: [],
+  deletedLists: []
+};
+const DAY = () => {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+};
 const NOW = () => new Date().toISOString();
-const TABS = [['today','☀','My Day'],['important','☆','Important'],['planned','▦','Planned'],['all','☰','All tasks']];
-Notifications.setNotificationHandler({ handleNotification: async () => ({ shouldShowAlert: true, shouldShowBanner: true, shouldShowList: true, shouldPlaySound: true, shouldSetBadge: false }) });
-
+const TABS = [['today', '☀', 'My Day'], ['important', '☆', 'Important'], ['planned', '▦', 'Planned'], ['all', '☰', 'All tasks']];
+Notifications.setNotificationHandler({
+  handleNotification: async () => ({
+    shouldShowAlert: true,
+    shouldShowBanner: true,
+    shouldShowList: true,
+    shouldPlaySound: true,
+    shouldSetBadge: false
+  })
+});
 export default function App() {
-  const [data,setData] = useState(EMPTY), state = useRef(EMPTY), revision = useRef(0), syncing = useRef(false), dirty = useRef(false);
-  const [server,setServer] = useState(''), [password,setPassword] = useState(''), [ready,setReady] = useState(false), [session,setSession] = useState(false), [online,setOnline] = useState(false), [pending,setPending] = useState(false);
-  const config = useRef({ server:'', password:'' });
-  const [screen,setScreen] = useState('menu'), [view,setView] = useState('today'), [selected,setSelected] = useState(null), [text,setText] = useState(''), [step,setStep] = useState(''), [note,setNote] = useState(''), [reminder,setReminder] = useState('');
+  const [data, setData] = useState(EMPTY),
+    state = useRef(EMPTY),
+    revision = useRef(0),
+    syncing = useRef(false),
+    dirty = useRef(false);
+  const [server, setServer] = useState(''),
+    [password, setPassword] = useState(''),
+    [ready, setReady] = useState(false),
+    [session, setSession] = useState(false),
+    [online, setOnline] = useState(false),
+    [pending, setPending] = useState(false);
+  const writes = useRef(Promise.resolve());
+  const config = useRef({
+    server: '',
+    password: ''
+  });
+  const [screen, setScreen] = useState('menu'),
+    [view, setView] = useState('today'),
+    [selected, setSelected] = useState(null),
+    [text, setText] = useState(''),
+    [step, setStep] = useState(''),
+    [note, setNote] = useState(''),
+    [reminder, setReminder] = useState('');
   const task = data.tasks.find(x => x.id === selected);
-  const save = useCallback(async (next, changed = true) => { state.current=next; revision.current++; setData(next); if(changed){dirty.current=true; setPending(true);} await AsyncStorage.setItem('ledger-data', JSON.stringify({ data:next, dirty:dirty.current })); }, []);
+  const save = useCallback(async (next, changed = true) => {
+    state.current = next;
+    if (changed) revision.current++;
+    setData(next);
+    if (changed) {
+      dirty.current = true;
+      setPending(true);
+    }
+    const persisted = JSON.stringify({
+      data: next,
+      dirty: dirty.current
+    });
+    writes.current = writes.current.catch(() => {}).then(() => AsyncStorage.setItem('ledger-data', persisted));
+    await writes.current;
+  }, []);
   const sync = useCallback(async () => {
-    if(syncing.current || !config.current.server || !config.current.password) return;
-    syncing.current=true;
-    const v=revision.current, snapshot=state.current;
+    if (syncing.current || !config.current.server || !config.current.password) return;
+    syncing.current = true;
+    const v = revision.current,
+      snapshot = state.current;
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 15000);
     try {
-      const res=await fetch(`${config.current.server}/api/sync`, { method:'POST', headers:{'Content-Type':'application/json', Authorization:`Bearer ${config.current.password}`}, body:JSON.stringify(snapshot) });
-      if(!res.ok) { if(res.status===401) throw new Error('Your password was rejected.'); throw new Error('Sync failed'); }
-      const merged=await res.json(); setOnline(true);
-      if(v===revision.current){ dirty.current=false; setPending(false); await save(merged,false); }
-    } catch(e) { setOnline(false); if(e.message==='Your password was rejected.') Alert.alert('Sign in',e.message); }
-    finally { syncing.current=false; if(v!==revision.current) setTimeout(sync,100); }
+      const res = await fetch(`${config.current.server}/api/sync`, {
+        method: 'POST',
+        signal: controller.signal,
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${config.current.password}`
+        },
+        body: JSON.stringify(snapshot)
+      });
+      if (!res.ok) {
+        if (res.status === 401) throw new Error('Your password was rejected.');
+        throw new Error('Sync failed');
+      }
+      const merged = await res.json();
+      setOnline(true);
+      if (v === revision.current) {
+        dirty.current = false;
+        setPending(false);
+        await save(merged, false);
+      }
+    } catch (e) {
+      setOnline(false);
+      if (e.message === 'Your password was rejected.') Alert.alert('Sign in', e.message);
+    } finally {
+      clearTimeout(timer);
+      syncing.current = false;
+      if (v !== revision.current) setTimeout(sync, 100);
+    }
   }, [save]);
-  useEffect(() => { (async()=>{ try { const [url,secret,cached]=await Promise.all([SecureStore.getItemAsync('ledger-url'),SecureStore.getItemAsync('ledger-password'),AsyncStorage.getItem('ledger-data')]); if(cached){const parsed=JSON.parse(cached); state.current=parsed.data; setData(parsed.data); dirty.current=!!parsed.dirty; setPending(!!parsed.dirty);} if(url&&secret){config.current={server:url,password:secret};setServer(url);setPassword(secret);setSession(true);} } finally {setReady(true);} })(); },[]);
-  useEffect(()=>{ if(!session)return; sync(); const timer=setInterval(sync,10000); const sub=AppState.addEventListener('change',s=>{if(s==='active')sync();}); return()=>{clearInterval(timer);sub.remove();}; },[session,sync]);
-  useEffect(()=>{const sub=BackHandler.addEventListener('hardwareBackPress',()=>{if(screen==='detail'){setSelected(null);setScreen('menu');return true;} if(screen==='tasks'){setScreen('menu');return true;} if(screen==='menu')return true; return false;});return()=>sub.remove();},[screen]);
-  useEffect(()=>{setNote(task?.note||'');setReminder(task?.reminderAt ? task.reminderAt.slice(0,16) : '');},[task?.id]);
-  async function signIn(){ const url=server.trim().replace(/\/+$/,''); if(!/^https:\/\//i.test(url)){Alert.alert('Server address','Enter your HTTPS server address.');return;} try{ const r=await fetch(`${url}/api/state`,{headers:{Authorization:`Bearer ${password}`}}); if(!r.ok)throw new Error('Check your server address and password.'); const initial=await r.json(); await Promise.all([SecureStore.setItemAsync('ledger-url',url),SecureStore.setItemAsync('ledger-password',password)]); config.current={server:url,password};dirty.current=false;await save(initial,false);setSession(true);setOnline(true); }catch(e){Alert.alert('Could not connect',e.message);} }
-  async function edit(id,patch){if(patch.done) await Notifications.cancelScheduledNotificationAsync(id).catch(()=>{});const now=NOW();const next={...state.current,tasks:state.current.tasks.map(t=>t.id===id?{...t,...patch,updatedAt:now}:t)};await save(next);sync();}
-  async function addTask(){const title=text.trim();if(!title)return;const now=NOW();const item={id:Crypto.randomUUID(),listId:TABS.some(x=>x[0]===view)?'all':view,title,done:false,myDay:view==='today'?DAY():null,important:view==='important',dueDate:view==='planned'?DAY():null,reminderAt:null,repeatRule:null,note:'',steps:[],createdAt:now,updatedAt:now};setText('');await save({...state.current,tasks:[...state.current.tasks,item]});sync();}
-  async function deleteTask(){Alert.alert('Delete task?','This removes the task from your lists.',[{text:'Cancel',style:'cancel'},{text:'Delete',style:'destructive',onPress:async()=>{await Notifications.cancelScheduledNotificationAsync(selected).catch(()=>{});const old=state.current.tasks.find(x=>x.id===selected);const at=NOW();await save({...state.current,tasks:state.current.tasks.filter(x=>x.id!==selected),deletedTasks:[...state.current.deletedTasks.filter(x=>x.id!==selected),{id:selected,deletedAt:at,task:old}]});setSelected(null);setScreen('menu');sync();}}]);}
-  async function addStep(){if(!step.trim()||!task)return;const now=NOW();const steps=[...(task.steps||[]),{id:Crypto.randomUUID(),taskId:task.id,title:step.trim(),done:false,createdAt:now,updatedAt:now}];setStep('');await edit(task.id,{steps});}
-  async function saveReminder(){const date=new Date(reminder);if(!Number.isFinite(date.getTime())||date<=new Date()){Alert.alert('Reminder','Enter a future date as YYYY-MM-DDTHH:mm.');return;}const permission=await Notifications.requestPermissionsAsync();if(permission.status!=='granted'){Alert.alert('Notifications','Allow notifications to receive reminders.');return;}await Notifications.cancelScheduledNotificationAsync(task.id).catch(()=>{});await Notifications.scheduleNotificationAsync({identifier:task.id,content:{title:task.title,body:'Ledger reminder',data:{taskId:task.id}},trigger:{type:Notifications.SchedulableTriggerInputTypes.DATE,date}});await edit(task.id,{reminderAt:date.toISOString()});}
-  const items=data.tasks.filter(t=>view==='today'?t.myDay===DAY():view==='important'?t.important:view==='planned'?t.dueDate||t.reminderAt:view==='all'?t.listId==='all'||t.important||t.dueDate||t.reminderAt||t.myDay===DAY():t.listId===view);
-  if(!ready)return <SafeAreaView style={styles.page}/>;
-  if(!session)return <SafeAreaView style={styles.page}><View style={styles.login}><Text style={styles.logo}>§</Text><Text style={styles.heading}>Ledger</Text><Text style={styles.muted}>Your tasks, wherever you are.</Text><TextInput style={styles.input} placeholder="https://your-server.com" placeholderTextColor="#89958e" autoCapitalize="none" value={server} onChangeText={setServer}/><TextInput style={styles.input} placeholder="Password" placeholderTextColor="#89958e" secureTextEntry value={password} onChangeText={setPassword}/><Pressable style={styles.primary} onPress={signIn}><Text style={styles.primaryText}>Sign in</Text></Pressable></View></SafeAreaView>;
-  return <SafeAreaView style={styles.page}><StatusBar barStyle="light-content"/><KeyboardAvoidingView style={styles.page} behavior={Platform.OS==='ios'?'padding':undefined}>
-    {screen==='menu'?<><View style={styles.header}><Text style={styles.logo}>§</Text><Text style={styles.heading}>Ledger</Text><Text style={styles.status}>{online?(pending?'Syncing':'Synced'):'Offline'}</Text></View><View style={styles.menu}>{[...TABS,...data.lists.filter(x=>x.id!=='all').map(x=>[x.id,'•',x.name])].map(([id,icon,label])=><Pressable key={id} style={styles.menuItem} onPress={()=>{setView(id);setScreen('tasks');}}><Text style={styles.icon}>{icon}</Text><Text style={styles.menuText}>{label}</Text><Text style={styles.muted}>›</Text></Pressable>)}</View></> : screen==='tasks'?<><View style={styles.top}><Text style={styles.heading}>{TABS.find(x=>x[0]===view)?.[2]||data.lists.find(x=>x.id===view)?.name||'Tasks'}</Text><Text style={styles.status}>{online?(pending?'Syncing':''):'Offline'}</Text></View><FlatList data={items} keyExtractor={x=>x.id} contentContainerStyle={styles.list} ListEmptyComponent={<Text style={styles.empty}>Nothing here yet.</Text>} renderItem={({item})=><Pressable style={styles.row} onPress={()=>{setSelected(item.id);setScreen('detail');}}><Pressable accessibilityLabel={item.done?'Mark incomplete':'Complete task'} onPress={()=>edit(item.id,{done:!item.done})}><Text style={styles.icon}>{item.done?'✓':'◯'}</Text></Pressable><View style={styles.flex}><Text style={[styles.taskText,item.done&&styles.done]}>{item.title}</Text>{item.steps?.length>0&&<Text style={styles.small}>{item.steps.filter(s=>s.done).length}/{item.steps.length} steps</Text>}</View><Pressable onPress={()=>edit(item.id,{important:!item.important})}><Text style={styles.icon}>{item.important?'★':'☆'}</Text></Pressable></Pressable>}/><View style={styles.bottom}><Pressable style={styles.menuButton} onPress={()=>setScreen('menu')}><Text style={styles.buttonText}>☰  Lists</Text></Pressable><TextInput style={styles.addInput} placeholder="Add a task" placeholderTextColor="#89958e" value={text} onChangeText={setText} onSubmitEditing={addTask}/><Pressable onPress={addTask}><Text style={styles.icon}>＋</Text></Pressable></View></> : task?<><View style={styles.top}><Pressable onPress={()=>{setScreen('menu');setSelected(null);}}><Text style={styles.back}>‹  Lists</Text></Pressable></View><View style={styles.details}><Pressable onPress={()=>edit(task.id,{done:!task.done})}><Text style={styles.detailTitle}>{task.done?'✓':'◯'}  {task.title}</Text></Pressable>{(task.steps||[]).map(s=><Pressable style={styles.step} key={s.id} onPress={()=>edit(task.id,{steps:task.steps.map(x=>x.id===s.id?{...x,done:!x.done,updatedAt:NOW()}:x)})}><Text style={styles.taskText}>{s.done?'✓':'◯'}  {s.title}</Text></Pressable>)}<TextInput style={styles.input} placeholder="＋  Add step" placeholderTextColor="#76ba99" value={step} onChangeText={setStep} onSubmitEditing={addStep}/><TextInput style={[styles.input,styles.notes]} placeholder="Add note" placeholderTextColor="#89958e" multiline value={note} onChangeText={setNote} onBlur={()=>edit(task.id,{note})}/><TextInput style={styles.input} placeholder="Reminder: YYYY-MM-DDTHH:mm" placeholderTextColor="#89958e" value={reminder} onChangeText={setReminder}/><Pressable style={styles.secondary} onPress={saveReminder}><Text style={styles.buttonText}>Set reminder</Text></Pressable><Pressable style={styles.secondary} onPress={deleteTask}><Text style={styles.danger}>Delete task</Text></Pressable></View></>:null}
+  useEffect(() => {
+    (async () => {
+      try {
+        const [url, secret, cached] = await Promise.all([SecureStore.getItemAsync('ledger-url'), SecureStore.getItemAsync('ledger-password'), AsyncStorage.getItem('ledger-data')]);
+        if (cached) {
+          const parsed = JSON.parse(cached);
+          state.current = parsed.data;
+          setData(parsed.data);
+          dirty.current = !!parsed.dirty;
+          setPending(!!parsed.dirty);
+        }
+        if (url && secret) {
+          config.current = {
+            server: url,
+            password: secret
+          };
+          setServer(url);
+          setPassword(secret);
+          setSession(true);
+        }
+      } finally {
+        setReady(true);
+      }
+    })();
+  }, []);
+  useEffect(() => {
+    if (!session) return;
+    sync();
+    const timer = setInterval(sync, 10000);
+    const sub = AppState.addEventListener('change', s => {
+      if (s === 'active') sync();
+    });
+    return () => {
+      clearInterval(timer);
+      sub.remove();
+    };
+  }, [session, sync]);
+  useEffect(() => {
+    const sub = BackHandler.addEventListener('hardwareBackPress', () => {
+      if (screen === 'detail') {
+        setSelected(null);
+        setScreen('menu');
+        return true;
+      }
+      if (screen === 'tasks') {
+        setScreen('menu');
+        return true;
+      }
+      if (screen === 'menu') return true;
+      return false;
+    });
+    return () => sub.remove();
+  }, [screen]);
+  useEffect(() => {
+    setNote(task?.note || '');
+    setReminder(task?.reminderAt ? task.reminderAt.slice(0, 16) : '');
+  }, [task?.id]);
+  async function signIn() {
+    const url = server.trim().replace(/\/+$/, '');
+    if (!/^https:\/\//i.test(url)) {
+      Alert.alert('Server address', 'Enter your HTTPS server address.');
+      return;
+    }
+    try {
+      const r = await fetch(`${url}/api/state`, {
+        headers: {
+          Authorization: `Bearer ${password}`
+        }
+      });
+      if (!r.ok) throw new Error('Check your server address and password.');
+      const initial = await r.json();
+      await Promise.all([SecureStore.setItemAsync('ledger-url', url), SecureStore.setItemAsync('ledger-password', password)]);
+      config.current = {
+        server: url,
+        password
+      };
+      dirty.current = false;
+      await save(initial, false);
+      setSession(true);
+      setOnline(true);
+    } catch (e) {
+      Alert.alert('Could not connect', e.message);
+    }
+  }
+  async function edit(id, patch) {
+    if (patch.done) await Notifications.cancelScheduledNotificationAsync(id).catch(() => {});
+    const now = NOW();
+    const next = {
+      ...state.current,
+      tasks: state.current.tasks.map(t => t.id === id ? {
+        ...t,
+        ...patch,
+        updatedAt: now
+      } : t)
+    };
+    await save(next);
+    sync();
+  }
+  async function addTask() {
+    const title = text.trim();
+    if (!title) return;
+    const now = NOW();
+    const item = {
+      id: Crypto.randomUUID(),
+      listId: TABS.some(x => x[0] === view) ? 'all' : view,
+      title,
+      done: false,
+      myDay: view === 'today' ? DAY() : null,
+      important: view === 'important',
+      dueDate: view === 'planned' ? DAY() : null,
+      reminderAt: null,
+      repeatRule: null,
+      note: '',
+      steps: [],
+      createdAt: now,
+      updatedAt: now
+    };
+    setText('');
+    await save({
+      ...state.current,
+      tasks: [...state.current.tasks, item]
+    });
+    sync();
+  }
+  async function deleteTask() {
+    Alert.alert('Delete task?', 'This removes the task from your lists.', [{
+      text: 'Cancel',
+      style: 'cancel'
+    }, {
+      text: 'Delete',
+      style: 'destructive',
+      onPress: async () => {
+        await Notifications.cancelScheduledNotificationAsync(selected).catch(() => {});
+        const old = state.current.tasks.find(x => x.id === selected);
+        const at = NOW();
+        await save({
+          ...state.current,
+          tasks: state.current.tasks.filter(x => x.id !== selected),
+          deletedTasks: [...state.current.deletedTasks.filter(x => x.id !== selected), {
+            id: selected,
+            deletedAt: at,
+            task: old
+          }]
+        });
+        setSelected(null);
+        setScreen('menu');
+        sync();
+      }
+    }]);
+  }
+  async function addStep() {
+    if (!step.trim() || !task) return;
+    const now = NOW();
+    const steps = [...(task.steps || []), {
+      id: Crypto.randomUUID(),
+      taskId: task.id,
+      title: step.trim(),
+      done: false,
+      createdAt: now,
+      updatedAt: now
+    }];
+    setStep('');
+    await edit(task.id, {
+      steps
+    });
+  }
+  async function saveReminder() {
+    const date = new Date(reminder);
+    if (!Number.isFinite(date.getTime()) || date <= new Date()) {
+      Alert.alert('Reminder', 'Enter a future date as YYYY-MM-DDTHH:mm.');
+      return;
+    }
+    if (Platform.OS === 'android') await Notifications.setNotificationChannelAsync('reminders', {
+      name: 'Reminders',
+      importance: Notifications.AndroidImportance.HIGH
+    });
+    const permission = await Notifications.requestPermissionsAsync();
+    if (permission.status !== 'granted') {
+      Alert.alert('Notifications', 'Allow notifications to receive reminders.');
+      return;
+    }
+    await Notifications.cancelScheduledNotificationAsync(task.id).catch(() => {});
+    await Notifications.scheduleNotificationAsync({
+      identifier: task.id,
+      content: {
+        title: task.title,
+        body: 'Ledger reminder',
+        data: {
+          taskId: task.id
+        }
+      },
+      trigger: {
+        type: Notifications.SchedulableTriggerInputTypes.DATE,
+        date,
+        channelId: 'reminders'
+      }
+    });
+    await edit(task.id, {
+      reminderAt: date.toISOString()
+    });
+  }
+  const items = data.tasks.filter(t => view === 'today' ? t.myDay === DAY() : view === 'important' ? t.important : view === 'planned' ? t.dueDate || t.reminderAt : view === 'all' ? t.listId === 'all' || t.important || t.dueDate || t.reminderAt || t.myDay === DAY() : t.listId === view);
+  if (!ready) return <SafeAreaView style={styles.page} />;
+  if (!session) return <SafeAreaView style={styles.page}><View style={styles.login}><Text style={styles.logo}>§</Text><Text style={styles.heading}>Ledger</Text><Text style={styles.muted}>Your tasks, wherever you are.</Text><TextInput style={styles.input} placeholder="https://your-server.com" placeholderTextColor="#89958e" autoCapitalize="none" value={server} onChangeText={setServer} /><TextInput style={styles.input} placeholder="Password" placeholderTextColor="#89958e" secureTextEntry value={password} onChangeText={setPassword} /><Pressable style={styles.primary} onPress={signIn}><Text style={styles.primaryText}>Sign in</Text></Pressable></View></SafeAreaView>;
+  return <SafeAreaView style={styles.page}><StatusBar barStyle="light-content" /><KeyboardAvoidingView style={styles.page} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+    {screen === 'menu' ? <><View style={styles.header}><Text style={styles.logo}>§</Text><Text style={styles.heading}>Ledger</Text><Text style={styles.status}>{online ? pending ? 'Syncing' : 'Synced' : 'Offline'}</Text></View><View style={styles.menu}>{[...TABS, ...data.lists.filter(x => x.id !== 'all').map(x => [x.id, '•', x.name])].map(([id, icon, label]) => <Pressable key={id} style={styles.menuItem} onPress={() => {
+            setView(id);
+            setScreen('tasks');
+          }}><Text style={styles.icon}>{icon}</Text><Text style={styles.menuText}>{label}</Text><Text style={styles.muted}>›</Text></Pressable>)}</View></> : screen === 'tasks' ? <><View style={styles.top}><Text style={styles.heading}>{TABS.find(x => x[0] === view)?.[2] || data.lists.find(x => x.id === view)?.name || 'Tasks'}</Text><Text style={styles.status}>{online ? pending ? 'Syncing' : '' : 'Offline'}</Text></View><FlatList data={items} keyExtractor={x => x.id} contentContainerStyle={styles.list} ListEmptyComponent={<Text style={styles.empty}>Nothing here yet.</Text>} renderItem={({
+          item
+        }) => <Pressable style={styles.row} onPress={() => {
+          setSelected(item.id);
+          setScreen('detail');
+        }}><Pressable accessibilityLabel={item.done ? 'Mark incomplete' : 'Complete task'} onPress={() => edit(item.id, {
+            done: !item.done
+          })}><Text style={styles.icon}>{item.done ? '✓' : '◯'}</Text></Pressable><View style={styles.flex}><Text style={[styles.taskText, item.done && styles.done]}>{item.title}</Text>{item.steps?.length > 0 && <Text style={styles.small}>{item.steps.filter(s => s.done).length}/{item.steps.length} steps</Text>}</View><Pressable onPress={() => edit(item.id, {
+            important: !item.important
+          })}><Text style={styles.icon}>{item.important ? '★' : '☆'}</Text></Pressable></Pressable>} /><View style={styles.bottom}><Pressable style={styles.menuButton} onPress={() => setScreen('menu')}><Text style={styles.buttonText}>☰  Lists</Text></Pressable><TextInput style={styles.addInput} placeholder="Add a task" placeholderTextColor="#89958e" value={text} onChangeText={setText} onSubmitEditing={addTask} /><Pressable onPress={addTask}><Text style={styles.icon}>＋</Text></Pressable></View></> : task ? <><View style={styles.top}><Pressable onPress={() => {
+            setScreen('menu');
+            setSelected(null);
+          }}><Text style={styles.back}>‹  Lists</Text></Pressable></View><ScrollView contentContainerStyle={styles.details} keyboardShouldPersistTaps="handled"><Pressable onPress={() => edit(task.id, {
+            done: !task.done
+          })}><Text style={styles.detailTitle}>{task.done ? '✓' : '◯'}  {task.title}</Text></Pressable>{(task.steps || []).map(s => <Pressable style={styles.step} key={s.id} onPress={() => edit(task.id, {
+            steps: task.steps.map(x => x.id === s.id ? {
+              ...x,
+              done: !x.done,
+              updatedAt: NOW()
+            } : x)
+          })}><Text style={styles.taskText}>{s.done ? '✓' : '◯'}  {s.title}</Text></Pressable>)}<TextInput style={styles.input} placeholder="＋  Add step" placeholderTextColor="#76ba99" value={step} onChangeText={setStep} onSubmitEditing={addStep} /><TextInput style={[styles.input, styles.notes]} placeholder="Add note" placeholderTextColor="#89958e" multiline value={note} onChangeText={setNote} onBlur={() => edit(task.id, {
+            note
+          })} /><TextInput style={styles.input} placeholder="Reminder: YYYY-MM-DDTHH:mm" placeholderTextColor="#89958e" value={reminder} onChangeText={setReminder} /><Pressable style={styles.secondary} onPress={saveReminder}><Text style={styles.buttonText}>Set reminder</Text></Pressable><Pressable style={styles.secondary} onPress={deleteTask}><Text style={styles.danger}>Delete task</Text></Pressable></ScrollView></> : null}
   </KeyboardAvoidingView></SafeAreaView>;
 }
-const styles=StyleSheet.create({page:{flex:1,backgroundColor:'#141b18'},login:{flex:1,justifyContent:'center',padding:28,gap:14},logo:{fontSize:38,color:'#72c6a0'},heading:{fontSize:28,fontWeight:'700',color:'#eef4ef'},muted:{color:'#9ca9a0'},header:{paddingHorizontal:22,paddingTop:22,flexDirection:'row',alignItems:'center',gap:12},status:{marginLeft:'auto',color:'#88ae99',fontSize:12},menu:{padding:14},menuItem:{minHeight:58,flexDirection:'row',alignItems:'center',paddingHorizontal:14,borderRadius:12},icon:{fontSize:25,color:'#70c09a',minWidth:36},menuText:{flex:1,color:'#e8eee9',fontSize:17},top:{paddingHorizontal:20,paddingTop:20,paddingBottom:16,flexDirection:'row',alignItems:'center'},list:{paddingHorizontal:12,paddingBottom:20},row:{backgroundColor:'#202b25',borderRadius:12,padding:13,marginBottom:7,flexDirection:'row',alignItems:'center',gap:8,minHeight:62},flex:{flex:1},taskText:{color:'#edf2ee',fontSize:16},done:{textDecorationLine:'line-through',color:'#91a096'},small:{color:'#91a096',fontSize:12,marginTop:4},empty:{textAlign:'center',color:'#91a096',padding:50},bottom:{flexDirection:'row',alignItems:'center',gap:8,padding:12,backgroundColor:'#18221c'},menuButton:{backgroundColor:'#315944',padding:12,borderRadius:12},buttonText:{color:'#d9efe1',fontSize:14,fontWeight:'600'},addInput:{flex:1,color:'#fff',backgroundColor:'#27352c',borderRadius:12,paddingHorizontal:12,minHeight:46},back:{color:'#8bc9a7',fontSize:18},details:{padding:16,gap:10},detailTitle:{color:'#fff',fontSize:22,fontWeight:'600',padding:16,backgroundColor:'#202b25',borderRadius:12},step:{padding:13,backgroundColor:'#202b25',borderRadius:10},input:{backgroundColor:'#202b25',color:'#fff',padding:14,borderRadius:12,fontSize:15},notes:{minHeight:100,textAlignVertical:'top'},secondary:{padding:15,backgroundColor:'#202b25',borderRadius:12},danger:{color:'#ef9696'},primary:{backgroundColor:'#70c09a',borderRadius:12,alignItems:'center',padding:15},primaryText:{color:'#102019',fontWeight:'700'}});
+const styles = StyleSheet.create({
+  page: {
+    flex: 1,
+    backgroundColor: '#141b18'
+  },
+  login: {
+    flex: 1,
+    justifyContent: 'center',
+    padding: 28,
+    gap: 14
+  },
+  logo: {
+    fontSize: 38,
+    color: '#72c6a0'
+  },
+  heading: {
+    fontSize: 28,
+    fontWeight: '700',
+    color: '#eef4ef'
+  },
+  muted: {
+    color: '#9ca9a0'
+  },
+  header: {
+    paddingHorizontal: 22,
+    paddingTop: 22,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12
+  },
+  status: {
+    marginLeft: 'auto',
+    color: '#88ae99',
+    fontSize: 12
+  },
+  menu: {
+    padding: 14
+  },
+  menuItem: {
+    minHeight: 58,
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 14,
+    borderRadius: 12
+  },
+  icon: {
+    fontSize: 25,
+    color: '#70c09a',
+    minWidth: 36
+  },
+  menuText: {
+    flex: 1,
+    color: '#e8eee9',
+    fontSize: 17
+  },
+  top: {
+    paddingHorizontal: 20,
+    paddingTop: 20,
+    paddingBottom: 16,
+    flexDirection: 'row',
+    alignItems: 'center'
+  },
+  list: {
+    paddingHorizontal: 12,
+    paddingBottom: 20
+  },
+  row: {
+    backgroundColor: '#202b25',
+    borderRadius: 12,
+    padding: 13,
+    marginBottom: 7,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    minHeight: 62
+  },
+  flex: {
+    flex: 1
+  },
+  taskText: {
+    color: '#edf2ee',
+    fontSize: 16
+  },
+  done: {
+    textDecorationLine: 'line-through',
+    color: '#91a096'
+  },
+  small: {
+    color: '#91a096',
+    fontSize: 12,
+    marginTop: 4
+  },
+  empty: {
+    textAlign: 'center',
+    color: '#91a096',
+    padding: 50
+  },
+  bottom: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    padding: 12,
+    backgroundColor: '#18221c'
+  },
+  menuButton: {
+    backgroundColor: '#315944',
+    padding: 12,
+    borderRadius: 12
+  },
+  buttonText: {
+    color: '#d9efe1',
+    fontSize: 14,
+    fontWeight: '600'
+  },
+  addInput: {
+    flex: 1,
+    color: '#fff',
+    backgroundColor: '#27352c',
+    borderRadius: 12,
+    paddingHorizontal: 12,
+    minHeight: 46
+  },
+  back: {
+    color: '#8bc9a7',
+    fontSize: 18
+  },
+  details: {
+    padding: 16,
+    gap: 10
+  },
+  detailTitle: {
+    color: '#fff',
+    fontSize: 22,
+    fontWeight: '600',
+    padding: 16,
+    backgroundColor: '#202b25',
+    borderRadius: 12
+  },
+  step: {
+    padding: 13,
+    backgroundColor: '#202b25',
+    borderRadius: 10
+  },
+  input: {
+    backgroundColor: '#202b25',
+    color: '#fff',
+    padding: 14,
+    borderRadius: 12,
+    fontSize: 15
+  },
+  notes: {
+    minHeight: 100,
+    textAlignVertical: 'top'
+  },
+  secondary: {
+    padding: 15,
+    backgroundColor: '#202b25',
+    borderRadius: 12
+  },
+  danger: {
+    color: '#ef9696'
+  },
+  primary: {
+    backgroundColor: '#70c09a',
+    borderRadius: 12,
+    alignItems: 'center',
+    padding: 15
+  },
+  primaryText: {
+    color: '#102019',
+    fontWeight: '700'
+  }
+});
