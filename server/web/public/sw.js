@@ -1,5 +1,5 @@
-const CACHE = "ledger-shell-v7";
-const SHELL = ["/", "/manifest.webmanifest", "/favicon.svg", "/icons/icon-192.png", "/icons/icon-512.png"];
+const CACHE = "ledger-shell-__LEDGER_BUILD__";
+const SHELL = ["/", "/manifest.webmanifest", "/favicon.svg", "/icons/icon-192.png", "/icons/icon-512.png" /* LEDGER_ASSETS */];
 
 self.addEventListener("install", (event) => event.waitUntil(caches.open(CACHE).then((cache) => cache.addAll(SHELL)).then(() => self.skipWaiting())));
 self.addEventListener("activate", (event) => event.waitUntil(caches.keys().then((keys) => Promise.all(keys.filter((key) => key !== CACHE).map((key) => caches.delete(key)))).then(() => self.clients.claim())));
@@ -8,13 +8,27 @@ self.addEventListener("fetch", (event) => {
   const url = new URL(event.request.url);
   const appAsset = event.request.mode === "navigate" || url.pathname.startsWith("/assets/") || url.pathname.startsWith("/icons/") || ["/manifest.webmanifest", "/favicon.svg"].includes(url.pathname);
   if (!appAsset) return;
-  event.respondWith(caches.match(event.request).then((cached) => {
+  event.respondWith((async () => {
+    if (event.request.mode === "navigate") {
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 4000);
+      try {
+        const response = await fetch(event.request, { signal: controller.signal });
+        if (!response.ok) throw new Error("Navigation unavailable");
+        return response;
+      } catch {
+        return (await caches.match("/", { cacheName: CACHE })) || Response.error();
+      } finally { clearTimeout(timeout); }
+    }
+    const cached = await caches.match(event.request);
     if (cached) return cached;
-    return fetch(event.request).then((response) => {
-      if (response.ok && response.type === "basic") caches.open(CACHE).then((cache) => cache.put(event.request, response.clone()));
-      return response;
-    }).catch(() => event.request.mode === "navigate" ? caches.match("/") : Response.error());
-  }));
+    const response = await fetch(event.request);
+    if (response.ok && response.type === "basic") {
+      const cache = await caches.open(CACHE);
+      await cache.put(event.request, response.clone());
+    }
+    return response;
+  })());
 });
 
 self.addEventListener("push", (event) => {
