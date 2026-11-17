@@ -38,11 +38,24 @@ Ledger gives you a calm task space that you run yourself. Use it in a browser, i
 - **Offline access.** The installed PWA can open its cached app shell and last synced task list. Changes made offline stay on the device and sync when a connection returns.
 - **Live updates.** Open clients refresh from the server while online, so changes show up without a manual reload.
 - **Web Push reminders.** Supported Android and desktop browsers can receive reminders while Ledger is closed, provided the phone and your Ledger server can reach the internet.
-- **Recently deleted.** Removed tasks stay recoverable for 24 hours.
+- **List backgrounds.** Use the image button beside the list title to upload a background. Each list keeps its own image on this device; the green interface stays the same.
 - **A small CLI.** Add, complete, edit, and sync tasks from a terminal.
 - **Native Android app.** The React Native client in [mobile/](mobile/README.md) supports offline tasks and local reminders.
 
 > **Push delivery note:** the phone must have internet access and the Ledger server must be running when the reminder is due. A fully offline phone cannot receive a push notification until it reconnects.
+
+## Android app
+
+[**Download Ledger APK (preview)**](https://github.com/mohammadsdg/Ledger/releases/download/android-preview/ledger-preview.apk)
+
+The download is published by the [Android APK build](https://github.com/mohammadsdg/Ledger/actions/workflows/android-apk.yml) after its first successful run. Until that build finishes, the download link is unavailable. This is an early native preview, signed with the Expo development key.
+
+1. Install the APK on your Android phone and open **Ledger**.
+2. Enter your Ledger website address, for example `https://tasks.example.com`. Use the website root, without `/api`. It must have a valid HTTPS certificate.
+3. Enter the same password you use to sign into the website (`APP_PASSWORD` on your server).
+4. Sign in while connected once to download your tasks. The app saves tasks locally for later offline use and syncs when you reopen it or while it is active online.
+
+Deploying the server does not install the native app on your phone. An IP-only HTTP address will not work with this preview; use your HTTPS domain. Local reminders are scheduled on the phone where you set them. The native preview does not yet include the web calendar or background uploads.
 
 ## Install on your server
 
